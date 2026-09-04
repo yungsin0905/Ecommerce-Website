@@ -1,0 +1,708 @@
+body {
+    font-size: 14px;
+    font-family: var(--font-family);
+    background: var(--primary-grey);
+}
+
+/* Main */
+.mgmt-main-cont {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Summary cards */
+.mgmt-sum-card-cont {
+    display: flex;
+    gap: 12px;
+}
+
+.mgmt-sum-card {
+    background: var(--primary-white);
+    padding: 7px 14px;
+    border-radius: 10px;
+    flex: 1;
+    min-width: 160px;
+    box-shadow: 0 2px 2px rgba(0,0,0,0.05);
+    border: 1px solid var(--primary-border);
+    transition: 0.2s;
+}
+
+.mgmt-sum-card:hover {
+    transform: translateY(-1px);
+    border-color: var(--primary-dark);
+}
+
+.mgmt-card-title {
+    font-size: 12px;
+    margin-bottom: 2px;
+    opacity: 0.8;
+}
+
+.mgmt-card-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--primary-dark); 
+}
+
+/* Control bar */
+.mgmt-ctrl {
+    background: var(--primary-white);
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--primary-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+
+}
+
+/* Inputs */
+.mgmt-search,
+.mgmt-filter {
+    border: 1px solid var(--primary-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    background: var(--primary-white);
+}
+
+.mgmt-ctrl form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
+}
+
+.search-box {
+    position: relative;
+    width: 240px;
+    flex-shrink: 0;
+}
+
+.mgmt-search {
+    width: 100%;
+    padding-left: 34px;
+}
+
+.search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #888;
+    font-size: 14px;
+}
+
+.mgmt-search:focus,
+.mgmt-filter:focus {
+    outline: none;
+    border-color: var(--primary-dark);
+}
+
+/* buttons */
+#clear-ctrl-btn,
+#toggle-col-btn,
+#reset-col-btn {
+    border: 1px solid var(--primary-border);
+    border-radius: 8px;
+    padding: 5px 10px;
+    background: var(--primary-white);
+    cursor: pointer;
+    transition: 0.2s;
+    color: #374151;
+}
+
+#clear-ctrl-btn:hover,
+#toggle-col-btn:hover,
+#reset-col-btn:hover {
+    border: 1px solid var(--primary-dark);
+}
+
+/* Tonggle columns */
+.toggle-col-cont {
+    position: relative;
+    display: inline-block;
+}
+
+#toggle-col-btn {
+    background-color: var(--primary-white);
+    border: 1px solid var(--primary-border);
+    padding: 7px 10px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+#toggle-col-menu {
+    display: none;
+    position: absolute;
+    top: 110%;
+    right: 0;
+    background: var(--primary-white);
+    border: 1px solid var(--primary-border);
+    border-radius: 8px;
+    padding: 10px;
+    z-index: 9999;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    min-width: 150px;
+}
+
+#toggle-col-menu label {
+    display: block;
+    padding: 7px;
+    border-bottom: 1px solid var(--primary-border);
+    cursor: pointer;
+}
+
+#toggle-col-menu label:hover {
+    background: var(--primary-color);
+}
+
+#reset-col-btn {
+    background: var(--primary-white);
+    margin-top: 7px;
+    padding: 5px;
+    cursor: pointer;
+}
+
+#toggle-col-menu.show {
+    display: block;
+}
+
+/* Sort */
+.sort-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+    color: #555;
+    font-weight: 500;
+}
+
+.sort-link:hover {
+    color: var(--primary-dark);
+}
+
+.sort-icons {
+    display: flex;
+    flex-direction: column;
+    font-size: 10px;
+    color: var(--primary-light);
+}
+
+.sort-link.asc .up i,
+.sort-link.desc .down i {
+    color: var(--primary-dark);
+    transform: scale(1.3);
+    display: inline-block;
+}
+
+/* Table */
+.mgmt-tbl table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: var(--primary-white);
+    border-radius: 10px;
+    border: 1px solid var(--primary-border);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.04);
+    table-layout: auto;
+}
+
+/* tbl header */
+.mgmt-tbl th {
+    background: var(--primary-white);
+    color: #374151;
+    padding: 14px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+    border-bottom: 1px solid var(--primary-border);
+    border-radius: 10px 10px 0 0;
+    vertical-align: middle;
+}
+
+/* tbl body */
+.mgmt-tbl td {
+    padding: 14px 12px;
+    border-bottom: 1px solid #f2f2f2;
+    border-radius: 0 0 0 10px;
+    vertical-align: middle;
+    color: #374151;
+}
+
+.mgmt-tbl tbody tr:hover {
+    background: #fcfcfc;
+}
+
+.tbl-image {
+    width:50px; 
+    height:50px;
+    object-fit:cover;
+    border-radius:6px;
+}
+
+/* Action menu */
+.action-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    border-radius: 6px;
+}
+
+.action-btn:hover {
+    background: var(--primary-border);
+    width: 20px;
+    height: 20px;
+}
+
+.action-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.action-menu {
+    display: none;
+    position: absolute;
+    top: 110%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--primary-white);
+    border: 1px solid var(--primary-border);
+    border-radius: 8px;
+    z-index: 9999;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.12);
+    min-width: 120px;
+}
+
+.action-menu a {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    text-decoration: none;
+    color: #333;
+    font-size: 13px;
+}
+
+.action-menu a:hover {
+    background: var(--primary-border);
+}
+
+.action-menu.show {
+    display: block;
+}
+
+.cancel-btn,
+.update-btn,
+.reply-btn,
+.view-btn,
+.edit-btn,
+.delete-btn{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+}
+
+/* Pagination */
+.mgmt-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+/* LEFT side pages */
+.pagination-left {
+    display: flex;
+    align-items: center;
+}
+
+/* page controls row */
+.page-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+/* RIGHT side jump */
+.pagination-right {
+    display: flex;
+    align-items: center;
+}
+
+/* jump form inline */
+.jump-page-form {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* input box */
+.jump-input {
+    width: 70px;
+    padding: 5px 8px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    text-align: center;
+}
+
+/* button */
+.jump-btn {
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    background: #fff;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.jump-btn:hover {
+    border-color: #333;
+}
+
+/* page ellipsis */
+.page-ellipsis {
+    padding: 0 4px;
+    color: #999;
+}
+
+.page-btn,
+.page-num {
+    text-decoration: none;
+    margin: 3px;
+    color: #333;
+}
+
+.page-limit {
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: 5px;
+}
+
+.page-num {
+    border: 1px solid var(--primary-border);
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: #333;
+}
+
+.page-num:hover {
+    border:1px solid var(--primary-dark);
+}
+
+.page-num.active {
+    background: var(--primary-light);
+    border-color: var(--primary-dark);
+    font-weight: bold;
+}
+
+/* Right control group */
+.mgmt-ctrl-right {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+/* Add button */
+.add-btn {
+    border-radius: 6px;
+    padding: 7px 10px;
+    text-decoration: none;
+    color: var(--primary-white);
+    
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    background: var(--primary-dark);
+    
+    transition: all 0.2s ease;
+}
+
+.add-btn i {
+   color: var(--primary-white);
+}
+
+.add-btn:hover {
+    background: var(--primary-light);
+    color: var(--primary-white);
+}
+
+.add-btn:hover i {
+   color: var(--primary-white);
+}
+
+/* Delete, reply, cancel, update button */
+.reply-btn,
+.cancel-btn,
+.update-btn,
+.delete-btn {
+    background: none;
+    border: none;
+    padding: 10px;
+    font-size: 12px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.reply-btn:hover,
+.cancel-btn:hover,
+.update-btn:hover,
+.delete-btn:hover {
+    background: var(--primary-grey);
+}
+
+/* Toast */
+.toast {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 40px 12px 18px;
+    border-radius: 8px;
+    color: #fff !important;
+    font-size: 14px;
+    z-index: 9999;
+    opacity: 1;
+    transition: all 0.4s ease;
+    min-width: 180px;
+    text-align: center;
+}
+
+.toast span {
+    color: #fff !important;
+}
+
+.toast.success {
+    background: #22c55e;
+}
+
+.toast.error {
+    background: #ef4444;
+}
+
+.toast-close-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: bold;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    line-height: 1;
+}
+
+.toast-close-btn:hover {
+    background: rgba(255, 255, 255, 0.35);
+    transform: scale(1.1);
+}
+
+/* Badge */
+.badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-block;
+}
+
+/* Pop up */
+.modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.45);
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.modal.show {
+    display: flex;
+}
+
+.modal-content {
+    width: 100%;
+    max-width: 470px;
+    background: #fff;
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow:
+        0 10px 25px rgba(0,0,0,0.12),
+        0 4px 10px rgba(0,0,0,0.08);
+    animation: modalFade 0.2s ease;
+}
+
+.modal-content h3 {
+    font-size: 22px;
+    font-weight: 600;
+    color: #222;
+    margin-bottom: 22px;
+}
+
+.save-btn {
+    color: var(--primary-white) !important;
+}
+
+.save-btn:hover {
+    color: var(--primary-dark) !important;
+}
+
+/* form */
+#replyForm,
+#refundForm,
+#statusForm {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+/* select */
+#statusForm select {
+    width: 100%;
+    height: 44px;
+    padding: 0 14px;
+    border: 1px solid #dcdcdc;
+    border-radius: 10px;
+    font-size: 14px;
+    background: #fff;
+    outline: none;
+    transition: 0.2s;
+}
+
+#statusForm select:focus {
+    border-color: #111;
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.06);
+}
+
+/* button container */
+#replyForm div,
+#refundForm div,
+#statusForm div {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+/* buttons */
+#replyForm button,
+#refundForm button,
+#statusForm button {
+    height: 42px;
+    padding: 0 18px;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+/* save button */
+#replyForm button[type="submit"],
+#refundForm button[type="submit"],
+#statusForm button[type="submit"] {
+    background: var(--primary-dark);
+    color: var(--text-secondary);
+}
+
+#replyForm button[type="submit"]:hover,
+#refundForm button[type="submit"]:hover,
+#statusForm button[type="submit"]:hover {
+    background: var(--primary-white);
+    border:1px solid var(--primary-grey);
+    color:var(--text-primary);
+}
+
+/* cancel button */
+#replyForm button[type="button"],
+#refundForm button[type="button"],
+#statusForm button[type="button"] {
+    background: #f3f3f3;
+    color: #444;
+}
+
+#replyForm button[type="button"]:hover,
+#refundForm button[type="button"]:hover,
+#statusForm button[type="button"]:hover {
+    background: #e5e5e5;
+}
+
+.order-link {
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 600;
+    transition: 0.2s;
+}
+
+.order-link:hover {
+    color: #1d4ed8;
+    text-decoration: underline;
+}
+
+.status-active{
+    background:#ecfdf5;
+    color:#059669;
+    border:1px solid #a7f3d0;
+}
+
+.status-inactive{
+    background:#fef2f2;
+    color:#dc2626;
+    border:1px solid #fecaca;
+}
+
+.stock-in-stock {
+    background: #e6ffed;
+    color: #1f7a3f;
+}
+
+.stock-low-stock {
+    background: #fff4e6;
+    color: #9f7f1e;
+}
+
+.stock-out-of-stock {
+    background: #ffe6e6;
+    color: #b30000;
+}
+
+.status-suspended {
+    background:#fef2f2;
+    color:#dc2626;
+    border:1px solid #fecaca;
+}
+
+.type-normal {
+    background: #e6ffed;
+    color: #09391a;
+}
+
+.type-custom {
+    background: #e6f0ff;
+    color: #0e2951;
+}

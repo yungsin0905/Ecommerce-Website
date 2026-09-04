@@ -1,0 +1,267 @@
+body{
+    margin:0;
+    font-family: var(--font-family);
+    background:var(--primary-grey);
+    color:var(--primary-black);
+}
+
+/* form wrapper */
+.form-wrapper{
+    max-width:1000px;
+    margin:40px auto;
+    padding:0 16px;
+}
+
+/* card container */
+.container{
+    background:#fff;
+    padding:28px;
+    border-radius:16px;
+    border:1px solid #eef0f5;
+    box-shadow:0 10px 30px rgba(0,0,0,0.06);
+    transition:0.3s;
+}
+
+.container:hover{
+    box-shadow:0 14px 40px rgba(0,0,0,0.08);
+}
+
+/* header top */
+.header-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:30px;
+}
+
+.title {
+    font-size:20px;
+    font-weight:700;
+}
+
+.section {
+    margin-bottom: 35px;
+}
+ 
+.section h3 {
+    margin-bottom: 8px;
+}
+
+/* back link */
+.form-back-link{
+    display:inline-flex;
+    gap:6px;
+    margin-bottom:15px;
+    text-decoration:none;
+    color:#6b7280;
+    font-size:14px;
+    font-weight:500;
+}
+
+.form-back-link:hover {
+    color:#111827;
+    text-decoration:underline;
+}
+
+/* row */
+.row {
+    display:flex;
+    align-items:flex-start;
+    padding:10px 0;
+    border-bottom:1px solid #f1f3f6;
+}
+
+/* label */
+.label {
+    min-width:170px;
+    font-weight:600;
+    color:#6b7280;
+    font-size:14px;
+}
+
+/* value */
+.value {
+    flex:1;
+    font-size:14px;
+    color:#1f2937;
+    line-height:1.6;
+}
+
+/* image */
+img {
+    width:140px;
+    height:140px;
+    object-fit:cover;
+    border-radius:12px;
+    border:1px solid #e5e7eb;
+    box-shadow:0 6px 16px rgba(0,0,0,0.05);
+}
+
+/* badge */
+.badge {
+    display:inline-block;
+    padding:6px 12px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:600;
+}
+
+.status-active{
+    background:#ecfdf5;
+    color:#059669;
+    border:1px solid #a7f3d0;
+}
+
+.status-inactive, 
+.status-suspended {
+    background:#fef2f2;
+    color:#dc2626;
+    border:1px solid #fecaca;
+}
+
+/* tier */
+.tier-gold { 
+    background: #fef9c3; 
+    color: #a16207; 
+}
+
+.tier-silver  { 
+    background: #f3f4f6; 
+    color: #4b5563; 
+}
+
+.tier-bronze  { 
+    background: #fef3c7; 
+    color: #92400e; 
+}
+
+/* order status */
+.status-processing { 
+    background: #dbeafe; 
+    color: #1d4ed8; 
+}
+
+.status-ready      { 
+    background: #ccfbf1; 
+    color: #0f766e; 
+}
+
+.status-completed  { 
+    background: #dcfce7; 
+    color: #166534; 
+}
+
+.status-refunded   { 
+    background: #ede9fe; 
+    color: #6d28d9; 
+}
+
+/* review status */
+.status-hide   { 
+    background: #fee2e2; 
+    color: #991b1b; 
+}
+
+.status-unhide { 
+    background: #dcfce7; 
+    color: #166534; 
+}
+
+/* delivery status */
+.status-pending          { 
+    background: #fef9c3; 
+    color: #854d0e; 
+}
+
+.status-out-for-delivery { 
+    background: #dbeafe; 
+    color: #1d4ed8; 
+}
+
+.status-delivered        { 
+    background: #dcfce7; 
+    color: #166534; 
+}
+
+/* order type */
+.order-normal { 
+    background: #f3f4f6; 
+    color: #374151; 
+}
+
+.order-custom { 
+    background: #fce7f3; 
+    color: #9d174d; 
+}
+
+/*  PAYMENT STATUS  */
+.status-success{
+    background:#d4edda;
+    color:#155724;
+}
+
+.status-pending{
+    background:#fff3cd;
+    color:#856404;
+}
+
+.status-failed{
+    background:#f8d7da;
+    color:#721c24;
+}
+
+/*  REFUND REQUEST  */
+.status-approved{
+    background:#d4edda;
+    color:#155724;
+}
+
+.status-rejected{
+    background:#f8d7da;
+    color:#721c24;
+}
+
+.status-successful{
+    background:#d4edda;
+    color:#155724;
+}
+
+/*  DELIVERY TYPE  */
+.delivery-same-day{
+    background:#ffe8cc;
+    color:#8a4b00;
+}
+
+.delivery-pre-order{
+    background:#dbeafe;
+    color:#1e3a8a;
+}
+
+/* edit button */
+.edit-btn {
+    background:var(--primary-white);
+    color:var(--primary-black);
+    border:1px solid var(--primary-border);
+    text-decoration:none;
+    padding:10px 18px;
+    border-radius:10px;
+    font-size:14px;
+    transition:0.2s;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+}
+
+.edit-btn:hover{
+   border:1px solid var(--primary-dark);
+}
+
+.type-public {
+    background: #d4ffe1;
+    color: #1d7a3e;
+}
+
+.type-tier {
+    background: #f3e8ff;
+    color: #7d38b9;
+}

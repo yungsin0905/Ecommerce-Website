@@ -1,0 +1,17 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    color: #1f2937;
+}
+
+:root {
+    --primary-white: #ffffff; 
+    --primary-black: #000000;
+    --primary-grey: #f9f9f9;
+    --primary-border: #dddddd;
+
+    --primary-light: #ddeaff;           
+    --primary-dark: #2563eb;       
+}
