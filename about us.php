@@ -179,16 +179,20 @@ if (session_status() === PHP_SESSION_NONE) {
     .scroll-cue {
         position: absolute;
         bottom: 20px;
-        left: 8%;
+        left: 50%;
+        transform: translateX(-50%);
         z-index: 2;
         color: #EBF4FC;
         font-size: 22px;
         animation: bob 2.2s ease-in-out infinite;
+        display: flex;
+        justify-content: center;
+        align-items: center;
     }
 
     @keyframes bob {
-        0%, 100% { transform: translateY(0); opacity: 0.6; }
-        50% { transform: translateY(8px); opacity: 1; }
+        0%, 100% { transform: translate(-50%, 0); opacity: 0.6; }
+        50% { transform: translate(-50%, 8px); opacity: 1; }
     }
 
     /* ---------- main container ---------- */

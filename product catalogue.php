@@ -445,11 +445,6 @@ $product_result = $conn->query($sql);
         transition: 0.35s ease;
       }
 
-      .cake-item:hover {
-        transform: translateY(-8px);
-        box-shadow: 0 14px 28px rgba(46,134,222,0.15);
-      }
-
       .cake-item img {
         height:220px;
         width: 100%;

@@ -56,15 +56,12 @@
         border-radius:6px;
         padding:8px 12px;
         font-size:15px;
-        font-weight:600;
         white-space:nowrap;
         transition:0.3s;
       }
 
       .nav-main a:hover{
         color: var(--main-color);
-        background-color: rgba(128, 184, 210, 0.12);
-        text-decoration: none;
       }
 
       /* right-hand side: search + icons */

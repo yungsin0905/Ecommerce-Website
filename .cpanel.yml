@@ -1,0 +1,5 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home2/makerklu/shop.makerkluang.com
+    - /bin/cp -R --exclude=.git * $DEPLOYPATH/ 2>/dev/null || true
