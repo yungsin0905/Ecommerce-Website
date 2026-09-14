@@ -12,7 +12,7 @@ if ($host_name == 'localhost' || $host_name == '127.0.0.1') {
     $servername = 'localhost';
     $username   = 'root';
     $password   = '';
-    $dbname     = 'cakeology';
+    $dbname     = 'robot_shop';
 } else {
     // ---------------- cPanel 线上环境 ----------------
     $servername = "localhost";

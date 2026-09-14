@@ -19,14 +19,18 @@ session_start();
       :root
       {
         --main-color: #80b8d2;
+        --main-dark: #3c8cb1;
         --font-color:#1B2A3C;
         --secondary-color:#F4F8FC;
+        --section-alt-bg: #F7FAFD;
+        --card-bg-color: #EBF4FC;
         --rating-color:#F5A623;
         --search-border-color:#C9DCEE;
-        --bg-color:#FFFFFF;
+        --border-subtle: #E2EDF7;
+        --bg-color: #FFFFFF;
         --font2-color:#52708A;
         /*hover effect*/
-         --transition: 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        --transition: 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
       }
 
       body{
@@ -39,39 +43,63 @@ session_start();
       /* hero */
       .hero-section
       {
-        background: var(--secondary-color);
+        background: linear-gradient(155deg, #E6F1FA 0%, #F2F7FC 55%, #EBF3FA 100%);
         position: relative;
-        height: 420px;
-        border-radius: 0;
+        min-height: 440px;
         overflow: hidden;
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        padding: 0 80px;
-        margin-bottom: 60px;
-        border-bottom: 1px solid var(--search-border-color);
+        padding: 60px 80px 85px;
+        margin-bottom: 0;
       }
 
       .hero-section::before {
         content: '';
         position: absolute;
-        right: -100px; top: -60px;
-        width: 480px; height: 480px;
-        background: var(--main-color);
-        opacity: 0.08;
-        border-radius: 40px;
-        transform: rotate(18deg);
+        right: -60px;
+        top: -60px;
+        width: 440px;
+        height: 440px;
+        background: radial-gradient(circle, rgba(128, 184, 210, 0.3) 0%, rgba(128, 184, 210, 0) 70%);
+        border-radius: 50%;
+        filter: blur(25px);
+        pointer-events: none;
       }
 
       .hero-section::after {
         content: '';
         position: absolute;
-        right: 80px; bottom: -180px;
-        width: 260px; height: 260px;
-        background: var(--main-color);
-        opacity: 0.06;
-        border-radius: 30px;
-        transform: rotate(18deg);
+        right: 140px;
+        bottom: -60px;
+        width: 280px;
+        height: 280px;
+        background: radial-gradient(circle, rgba(60, 140, 177, 0.18) 0%, rgba(60, 140, 177, 0) 70%);
+        border-radius: 50%;
+        filter: blur(30px);
+        pointer-events: none;
+      }
+
+      .hero-wave {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        line-height: 0;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 3;
+      }
+
+      .hero-wave svg {
+        position: relative;
+        display: block;
+        width: 100%;
+        height: 36px;
+      }
+
+      .hero-wave path {
+        fill: #FFFFFF;
       }
 
       .hero-eyebrow{
@@ -124,7 +152,7 @@ session_start();
 
       .learn-btn a{
         display: block;
-        color: var(--bg-color);
+        color: #FFFFFF;
         font-weight: 600;
         padding: 14px 36px;
         text-decoration: none;
@@ -139,8 +167,33 @@ session_start();
 
       /* main content */
       .main-content{
-        background-color: var(--bg-color);
-        padding-bottom: 80px;
+        background-color: #FFFFFF;
+        padding-bottom: 0;
+      }
+
+      /* section layered styling */
+      .content-section {
+        position: relative;
+        padding: 55px 0 65px;
+      }
+
+      .best-selling-section,
+      .best-selling {
+        background-color: #FFFFFF;
+      }
+
+      .best-selling-section {
+        padding-top: 45px;
+      }
+
+      .recommended-section {
+        background-color: var(--secondary-color);
+        border-top: 1px solid var(--border-subtle);
+        border-bottom: 1px solid var(--border-subtle);
+      }
+
+      .more-categories-section {
+        background-color: #FFFFFF;
       }
 
       .section-title{
@@ -166,8 +219,9 @@ session_start();
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 0 100px;
-        margin-bottom: 20px;
+        padding: 0 80px;
+        max-width: 1400px;
+        margin: 0 auto 20px;
       }
 
       .view-all-btn {
@@ -186,16 +240,15 @@ session_start();
         transform: translateX(5px);
       }
 
-      .best-selling{
-        margin: 60px 0;
-      }
-
       /* slider */
       .slider-wrapper {
         position: relative; 
         display: flex;
         align-items: center;
         padding: 0 80px;
+        background-color: transparent;
+        max-width: 1400px;
+        margin: 0 auto;
       }
 
       .cake-grid{
@@ -304,7 +357,7 @@ session_start();
 
       /* categories */
       .more-categories {
-        margin: 50px 0 60px;
+        margin: 0;
       }
  
       .more-categories h2 {
@@ -315,8 +368,10 @@ session_start();
         display: flex;
         justify-content: flex-start;
         gap: 25px;
-        padding: 10px 100px 20px;
+        padding: 10px 80px 20px;
         flex-wrap: wrap;
+        max-width: 1400px;
+        margin: 0 auto;
       }
  
       .cat-item {
@@ -377,16 +432,20 @@ session_start();
       }
 
       /* perks & rewards (Membership & Voucher) */
-      /* perks & rewards (Membership & Voucher) - Professional Tech/E-commerce Style */
       .perks-section {
-        margin: 50px 0 30px;
+        background: linear-gradient(180deg, var(--secondary-color) 0%, #EAF3FB 100%);
+        border-top: 1px solid var(--border-subtle);
+        padding: 60px 0 85px;
+        margin: 0;
       }
 
       .perks-grid {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
         gap: 25px;
-        padding: 10px 100px 20px;
+        padding: 10px 80px 20px;
+        max-width: 1400px;
+        margin: 0 auto;
       }
 
       .perk-card {
@@ -403,7 +462,6 @@ session_start();
       }
 
       .perk-card:hover {
-        transform: translateY(-5px);
         border-color: var(--main-color);
         box-shadow: 0 10px 24px rgba(27, 42, 60, 0.08);
       }
@@ -514,20 +572,28 @@ session_start();
 
       .perk-btn:hover {
         background: var(--font2-color);
-
         color: #FFFFFF !important;
       }
 
       @media (max-width: 992px) {
-        .perks-grid {
-          grid-template-columns: 1fr;
-          padding: 10px 30px 20px;
+        .hero-section {
+          padding: 50px 24px 75px;
+        }
+        .content-section {
+          padding: 40px 0 45px;
         }
         .section-header {
-          padding: 0 30px;
+          padding: 0 24px;
+        }
+        .slider-wrapper {
+          padding: 0 24px;
         }
         .categories {
-          padding: 10px 30px 20px;
+          padding: 10px 24px 20px;
+        }
+        .perks-grid {
+          grid-template-columns: 1fr;
+          padding: 10px 24px 20px;
         }
       }
 
@@ -544,12 +610,17 @@ session_start();
         <p>Fresh-baked cakes made for every occasion — birthdays, anniversaries, or just because.</p>
         <button class="learn-btn"><a href="about us.php">Learn More</a></button>
       </div>
+      <div class="hero-wave">
+        <svg viewBox="0 0 1440 60" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+          <path d="M0,24 C360,56 1080,-10 1440,24 L1440,60 L0,60 Z"></path>
+        </svg>
+      </div>
     </section>
 
     <!-- main-content -->
     <section class="main-content">
       <!-- best selling -->
-      <div class="best-selling">
+      <div class="content-section best-selling-section">
         <div class="section-header">
           <h2 class="section-title">Best Selling</h2>
           <a href="product catalogue.php?cake_type=Best%20Selling" class="view-all-btn">
@@ -621,7 +692,7 @@ session_start();
       </div>
 
       <!-- high recommended -->
-      <div class="best-selling">
+      <div class="content-section recommended-section">
         <div class="section-header">
           <h2 class="section-title">High Recommended</h2>
            
@@ -695,7 +766,7 @@ session_start();
         </div>
 
         <!-- more categories -->
-        <div class="more-categories">
+        <div class="content-section more-categories-section">
           <div class="section-header">
             <h2 class="section-title">More Categories</h2>
           </div>
@@ -720,7 +791,7 @@ session_start();
         </div>
 
         <!-- Membership & Voucher Section -->
-        <div class="perks-section">
+        <div class="content-section perks-section">
           <div class="section-header">
             <h2 class="section-title">Membership Rewards & Vouchers</h2>
           </div>

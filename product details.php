@@ -1,4 +1,9 @@
 <?php
+// ============ 临时调试开关，确认没问题后请删除这两行 ============
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+// ================================================================
+
 include 'include/config.php';
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -8,12 +13,13 @@ if (session_status() === PHP_SESSION_NONE) {
 $product_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
   //retrieve product information
-  $query = "SELECT p.*, c.CATEGORY_NAME ,
+  $query = "SELECT p.*, GROUP_CONCAT(DISTINCT c.CATEGORY_NAME SEPARATOR ', ') as CATEGORY_NAME,
   (SELECT AVG(RATING) FROM review WHERE PRODUCT_ID = p.PRODUCT_ID AND REVIEW_STATUS = 'Unhide') as CALCULATED_RATING,
   (SELECT COUNT(*) FROM review WHERE PRODUCT_ID = p.PRODUCT_ID AND REVIEW_STATUS = 'Unhide') as TOTAL_REVIEWS
   FROM product p
-  LEFT JOIN category c ON p.CATEGORY_ID = c.CATEGORY_ID
-  WHERE p.product_id = $product_id
+  LEFT JOIN product_category pc ON p.PRODUCT_ID = pc.PRODUCT_ID
+  LEFT JOIN category c ON pc.CATEGORY_ID = c.CATEGORY_ID
+  WHERE p.PRODUCT_ID = $product_id
   AND p.IS_DELETED = 0 
   AND EXISTS (
               SELECT 1 FROM product_variant
@@ -21,7 +27,8 @@ $product_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
               AND IS_DELETED = 0
               AND VARIANT_STATUS = 'Active'
               AND VARIANT_STOCK > 0)
-              LIMIT 1";
+  GROUP BY p.PRODUCT_ID
+  LIMIT 1";
             
   $result = mysqli_query($conn, $query);
   $product = mysqli_fetch_assoc($result);
@@ -33,14 +40,68 @@ $product_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
   $display_rating = $product['CALCULATED_RATING'] ? round($product['CALCULATED_RATING'], 1) : 0;
   $total_reviews = $product['TOTAL_REVIEWS'];
+  $features_data = !empty($product['FEATURES']) ? json_decode($product['FEATURES'], true) : [];
+$packing_data  = !empty($product['PACKING_LIST']) ? json_decode($product['PACKING_LIST'], true) : [];
+
+//====== HTMLPurifier & 自定义样式处理 description ======
+require_once 'include/vendor/HTMLPurifier.standalone.php';
+$config = HTMLPurifier_Config::createDefault();
+$purifier = new HTMLPurifier($config);
+
+// 彻底还原多层 HTML 实体转义
+$raw_desc = (string)$product['PRODUCT_DES'];
+for ($i = 0; $i < 3; $i++) {
+    if (strpos($raw_desc, '&lt;') !== false || strpos($raw_desc, '&#') !== false) {
+        $raw_desc = html_entity_decode($raw_desc, ENT_QUOTES, 'UTF-8');
+    } else {
+        break;
+    }
+}
+
+// 提取 <style> 中的 CSS 规则并注入页面头部渲染，绝不让 CSS 代码漏到前台文本中
+$custom_desc_css = '';
+if (preg_match_all('/<style\b[^>]*>(.*?)<\/style>/is', $raw_desc, $style_matches)) {
+    foreach ($style_matches[1] as $css_chunk) {
+        $custom_desc_css .= "\n" . $css_chunk;
+    }
+    // 移除已提取的 style 块
+    $raw_desc = preg_replace('/<style\b[^>]*>.*?<\/style>/is', '', $raw_desc);
+}
+
+// 移除 script 标签
+$raw_desc = preg_replace('/<script\b[^>]*>.*?<\/script>/is', '', $raw_desc);
+
+$clean_description = $purifier->purify($raw_desc);
+
+
+//=============================================
 
   //retrieve add on
-  $add_query = "SELECT pa.*, a.*
-   FROM product_addon pa
-   JOIN add_on a ON pa.ADD_ON_ID = a.ADD_ON_ID
-    WHERE pa.PRODUCT_ID = $product_id AND a.IS_DELETED = 0 AND a.ADD_ON_STATUS = 'Active'" ;
+    $add_query = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE as CUSTOM_PRICE, pa.SORT_ORDER,
+      p2.PRODUCT_ID as ADDON_PRODUCT_ID, p2.PRODUCT_NAME, p2.COVER_IMAGE,
+      MIN(v2.VARIANT_ID) as ADDON_VARIANT_ID,
+      MIN(v2.VARIANT_PRICE) as VARIANT_PRICE,
+      SUM(v2.VARIANT_STOCK) as VARIANT_STOCK
+  FROM product_addon pa
+  JOIN product p2 ON pa.ADDON_PRODUCT_ID = p2.PRODUCT_ID
+  JOIN product_variant v2 ON v2.PRODUCT_ID = p2.PRODUCT_ID 
+      AND v2.IS_DELETED = 0 AND v2.VARIANT_STATUS = 'Active'
+  WHERE pa.HOST_PRODUCT_ID = $product_id 
+      AND pa.IS_DELETED = 0
+      AND p2.IS_DELETED = 0 AND p2.PRODUCT_STATUS = 'Active'
+  GROUP BY p2.PRODUCT_ID
+  ORDER BY pa.SORT_ORDER ASC";
   $add_result = mysqli_query($conn, $add_query);
-    $all_addons = mysqli_fetch_all($add_result, MYSQLI_ASSOC);
+  $all_addons = mysqli_fetch_all($add_result, MYSQLI_ASSOC);
+
+  foreach ($all_addons as &$a) {
+      $a['ADD_ON_ID']    = $a['ADDON_PRODUCT_ID'];
+      $a['ADD_ON_NAME']  = $a['PRODUCT_NAME'];
+      $a['ADD_ON_IMAGE'] = $a['COVER_IMAGE'];
+      $a['ADD_ON_PRICE'] = !empty($a['CUSTOM_PRICE']) ? $a['CUSTOM_PRICE'] : $a['VARIANT_PRICE'];
+      $a['ADD_ON_STOCK'] = $a['VARIANT_STOCK'];
+  }
+  unset($a);
 
 
   //retrieve product image
@@ -51,13 +112,67 @@ $product_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
   //retrieve product variant
   $variant_query = "SELECT * FROM product_variant WHERE PRODUCT_ID = $product_id AND VARIANT_STATUS = 'Active' 
   AND IS_DELETED = 0 AND VARIANT_STOCK > 0  
-  ORDER BY VARIANT_SIZE ASC";
+  ORDER BY VARIANT_ID ASC";
   $variant_result = mysqli_query($conn, $variant_query);
   $variants = mysqli_fetch_all($variant_result, MYSQLI_ASSOC);
-                  
-  //setup price initialization to variant price
-  $initial_price = count($variants) > 0 ? (float)$variants[0]['VARIANT_PRICE'] : 0.0;
+
+  //每个 variant 算出"实际卖多少钱"（有促销价就用促销价，没有就用原价）
+  foreach ($variants as &$v) {
+      $v['DISPLAY_PRICE'] = !empty($v['SALE_PRICE']) ? (float)$v['SALE_PRICE'] : (float)$v['VARIANT_PRICE'];
+  }
+  unset($v);
+
+  //价格区间：用 DISPLAY_PRICE（实际卖的价格）来算区间
+  $display_prices = array_column($variants, 'DISPLAY_PRICE');
+  $min_price = count($display_prices) > 0 ? min($display_prices) : 0;
+  $max_price = count($display_prices) > 0 ? max($display_prices) : 0;
+
+  //原价区间：用 VARIANT_PRICE 来算
+  $original_prices = array_column($variants, 'VARIANT_PRICE');
+  $min_original = count($original_prices) > 0 ? min($original_prices) : 0;
+  $max_original = count($original_prices) > 0 ? max($original_prices) : 0;
+
+  //是否有任何 variant 打折
+  $has_discount = false;
+  $discount_percents = [];
+  foreach ($variants as $v) {
+      if (!empty($v['SALE_PRICE']) && $v['SALE_PRICE'] < $v['VARIANT_PRICE']) {
+          $has_discount = true;
+          $discount_percents[] = round((($v['VARIANT_PRICE'] - $v['SALE_PRICE']) / $v['VARIANT_PRICE']) * 100);
+      }
+  }
+  $min_discount = count($discount_percents) > 0 ? min($discount_percents) : 0;
+  $max_discount = count($discount_percents) > 0 ? max($discount_percents) : 0;
+
+  //初始价格也要用 DISPLAY_PRICE
+  $initial_price = count($variants) > 0 ? $variants[0]['DISPLAY_PRICE'] : 0.0;
   $initial_stock = count($variants) > 0 ? intval($variants[0]['VARIANT_STOCK']) : 999;
+
+  //================================================================
+  
+  //retrieve option groups for this product
+  $option_groups = [];
+  $opt_query = "SELECT * FROM product_option WHERE PRODUCT_ID = $product_id AND IS_DELETED = 0 ORDER BY OPTION_ORDER ASC";
+  $opt_result = mysqli_query($conn, $opt_query);
+  while ($og = mysqli_fetch_assoc($opt_result)) {
+      $val_query = "SELECT * FROM product_option_value WHERE OPTION_ID = {$og['OPTION_ID']} AND IS_DELETED = 0 ORDER BY VALUE_ORDER ASC";
+      $val_result = mysqli_query($conn, $val_query);
+      $og['VALUES'] = mysqli_fetch_all($val_result, MYSQLI_ASSOC);
+      $option_groups[] = $og;
+  }
+
+  //build variant -> option_value_id[] map (只算目前有效的 variant)
+  $variant_option_map = [];
+  foreach ($variants as $v) {
+      $vov_query = "SELECT OPTION_VALUE_ID FROM variant_option_value WHERE VARIANT_ID = {$v['VARIANT_ID']}";
+      $vov_result = mysqli_query($conn, $vov_query);
+      $ids = [];
+      while ($row = mysqli_fetch_assoc($vov_result)) {
+          $ids[] = intval($row['OPTION_VALUE_ID']);
+      }
+      $variant_option_map[$v['VARIANT_ID']] = $ids;
+  }
+
   
   $editing_cart_item = null;
   $editing_addons = [];
@@ -202,81 +317,257 @@ if (isset($_GET['cart_item_id'])) {
         text-decoration: none;
       }
 
-      /* product image */
+      /* product image and details layout */
       .product-container {
         display: grid;
-        grid-template-columns: 1fr 1fr; 
-        gap: 100px; 
-        margin-bottom: 50px;
-        margin-left:-100px;
+        grid-template-columns: 1fr 1.15fr;  
+        gap: 50px; 
+        margin-bottom: 40px;
+        margin-left: -100px;
+        align-items: start;
       }
 
-      
+      .product-gallery {
+        width: 100%;
+        min-width: 0;
+        position: sticky;
+        top: 20px;
+      }
+
+      .main-image {
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        background: #ffffff;
+        border: 1px solid var(--search-border-color);
+        border-radius: 10px;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        box-shadow: 0 4px 15px rgba(27,42,60,0.06);
+      }
+
       .main-image img {
-        width: 100%; 
-        height: auto;
-        border-radius: 8px;
-        
-        box-shadow: 0 8px 20px rgba(27,42,60,0.10);
-        cursor: pointer;
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain; /* 保证任意尺寸/比例的商品图片统一完整居中于 1:1 正方形框内，不拉伸变形也不撑大容器 */
+        object-position: center;
+        cursor: zoom-in;
         display: block;
+        padding: 18px; /* 留出电商白边内边距，统一视觉规范 */
+        background: #ffffff;
+        transition: transform 0.25s ease;
+      }
+
+      .main-image:hover img {
+        transform: scale(1.03);
       }
 
       .thumbnail-list {
         display: flex;
-        gap: 15px;
+        flex-wrap: wrap;
+        gap: 12px;
         margin-top: 15px;
       }
 
       .thumbnail-list img {
-        width: 150px;
-        height: 150px;
-        object-fit: cover;
+        width: 75px;
+        height: 75px;
+        aspect-ratio: 1 / 1;
+        object-fit: contain;
+        object-position: center;
         cursor: pointer;
         border-radius: 6px;
-        border: 1px solid var(--search-border-color);
+        border: 1.5px solid var(--search-border-color);
+        background: #ffffff;
+        padding: 4px;
+        transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
       }
 
-      .description {
-        margin-top: 25px;
-        font-size: 15px;
-        line-height: 1.6;
-        color: var(--font-color);
+      .thumbnail-list img:hover,
+      .thumbnail-list img.active-thumb {
+        border-color: var(--main-color);
+        transform: translateY(-2px);
+        box-shadow: 0 3px 8px rgba(0,0,0,0.08);
       }
 
-      /* collapsible info */
+      /* full-width product info accordion (Description, Features, Packing List) */
+      .product-info-section {
+        margin-top: 40px;
+        margin-bottom: 50px;
+        margin-left: -100px;
+      }
+
       .accordion {
-        margin-top: 20px;
         border-top: 1px solid var(--search-border-color);
+       
+        
       }
 
       .accordion-item {
+        border: none;
         border-bottom: 1px solid var(--search-border-color);
-        background-color: transparent;
-        border:none;
-        border-bottom: 1px solid var(--search-border-color);
+        
       }
 
       .accordion-header {
-        padding: 15px 0;
+        padding: 18px 0;
         display: flex;
         justify-content: space-between;
-        font-weight: bold;
+        align-items: center;
+        font-weight: 600;
+        font-size: 16px;
         cursor: pointer;
+        color: var(--font-color);
+        transition: color 0.2s ease;
+      }
+
+      .accordion-header:hover {
+        color: var(--main-color);
+      }
+
+      .accordion-header span {
+        font-size: 18px;
+        font-weight: 600;
         color: var(--font2-color);
       }
 
       .accordion-content {
         max-height: 0;
         overflow: hidden;
-        transition: max-height 0.3s ease-out;
-        font-size: 14px;
+        transition: max-height 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        font-size: 14.5px;
         color: var(--font2-color);
       }
 
       .accordion-item.active .accordion-content {
-        max-height: 150px;
-        padding-bottom: 15px;
+        max-height: 2500px;
+        padding-bottom: 20px;
+        overflow-y: visible;
+      }
+
+      .description-content {
+        line-height: 1.75;
+        color: var(--font-color);
+        font-size: 14.5px;
+      }
+
+      .description-content img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 6px;
+      }
+
+      /* Built-in rich layout helper classes for description */
+      .description-content .desc-grid-2 {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+        margin: 20px 0;
+      }
+
+      .description-content .desc-grid-3,
+      .description-content .compare-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 20px;
+        margin: 20px 0;
+      }
+
+      .description-content .desc-grid-4 {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 15px;
+        margin: 20px 0;
+      }
+
+      .description-content .desc-card,
+      .description-content .compare-item {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 20px 16px;
+        text-align: center;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .description-content .desc-card:hover,
+      .description-content .compare-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+      }
+
+      .description-content .compare-item img,
+      .description-content .desc-card img {
+        max-height: 160px;
+        width: auto;
+        margin-bottom: 12px;
+        object-fit: contain;
+      }
+
+      .description-content .compare-item h4,
+      .description-content .compare-item h5,
+      .description-content .desc-card h4,
+      .description-content .desc-card h5 {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--font-color);
+        margin: 8px 0 6px;
+      }
+
+      .description-content .desc-note,
+      .description-content .compare-note {
+        background: #f8fafc;
+        border-left: 4px solid var(--main-color);
+        padding: 14px 18px;
+        border-radius: 0 8px 8px 0;
+        margin: 18px 0;
+        color: #475569;
+        font-size: 14px;
+      }
+
+      .description-content .desc-banner {
+        width: 100%;
+        border-radius: 10px;
+        overflow: hidden;
+        margin: 20px 0;
+      }
+
+      .description-content .desc-banner img {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      .description-content table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+        font-size: 14px;
+      }
+
+      .description-content th,
+      .description-content td {
+        padding: 12px 16px;
+        border: 1px solid #e2e8f0;
+        text-align: left;
+      }
+
+      .description-content th {
+        background-color: #f1f5f9;
+        font-weight: 600;
+        color: var(--font-color);
+      }
+
+      .description-content tr:nth-child(even) {
+        background-color: #f8fafc;
       }
 
       /* product details */
@@ -287,6 +578,14 @@ if (isset($_GET['cart_item_id'])) {
         font-weight: bold;
         font-family: 'Poppins', sans-serif;
       }
+
+      .product-title .variant-label {
+        display: block;
+        font-size: 15px;
+        font-weight: 500;
+        color: var(--font2-color);
+        margin-top: 4px;
+    }
 
       .wishlist-btn{
         background:none;
@@ -327,13 +626,70 @@ if (isset($_GET['cart_item_id'])) {
         color: var(--main-color);
       }
 
+      .price-block {
+      margin-bottom: 25px;
+      }
+      .discount-line {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-top: 4px;
+      }
+      .original-price {
+          text-decoration: line-through;
+          color: #999;
+          font-size: 14px;
+      }
+      .discount-badge {
+          background: #e74c3c;
+          color: #fff;
+          font-size: 12px;
+          font-weight: bold;
+          padding: 2px 8px;
+          border-radius: 4px;
+      }
+
       /* selector group */
       .selector-group {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 15px;
+        margin-bottom: 20px;
         color: var(--font2-color);
+      }
+
+        .option-btn-group {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 15px;
+      }
+      .option-btn {
+          padding: 8px 14px;
+          border: 1px solid var(--search-border-color);
+          border-radius: 4px;
+          background: #fff;
+          color: var(--font2-color);
+          cursor: pointer;
+          font-size: 13px;
+          transition:0.3s;
+      }
+      .option-btn:hover {
+          background: var(--secondary-color);
+          color: var(--main-color);
+      }
+      .option-btn.selected {
+          border-color: var(--main-color);
+          color: var(--main-color);
+          font-weight: bold;
+          background: var(--secondary-color);
+      }
+      .option-btn.auto-selected {
+          opacity: 0.7;
+          cursor: not-allowed;
+      }
+      .option-btn[style*="display: none"] {
+          display: none;
       }
 
       .quantity-input {
@@ -490,7 +846,7 @@ if (isset($_GET['cart_item_id'])) {
         margin-top: 60px;
         margin-left:-100px;
         padding-top: 40px;
-        border-top: 1px solid var(--search-border-color);
+       
       }
 
       .stars {
@@ -557,10 +913,32 @@ if (isset($_GET['cart_item_id'])) {
 
       /* zoom animation */
       @keyframes zoomIn {
-      from { transform: scale(0.8); opacity: 0; }
-      to { transform: scale(1); opacity: 1; }
+        from { transform: scale(0.8); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+      }
+
+      @media (max-width: 992px) {
+        .product-container {
+          grid-template-columns: 1fr;
+          gap: 35px;
+          margin-left: 0;
+        }
+        .back-section {
+          margin-left: 0;
+        }
+        .product-info-section {
+          margin-left: 0;
+        }
+        .reviews-section {
+          margin-left: 0;
+        }
       }
     </style>
+    <?php if (!empty($custom_desc_css)): ?>
+    <style id="custom-product-desc-css">
+      <?= $custom_desc_css ?>
+    </style>
+    <?php endif; ?>
 </head>
 
 <body>
@@ -582,48 +960,68 @@ if (isset($_GET['cart_item_id'])) {
 
       <input type="hidden" name="product_id" value="<?php echo intval($product_id); ?>">
       <div class="product-container">
-        
-        <!-- product image -->
-        <div class="product-gallery">
-          <div class="main-image">
-            <img id="mainImg" src="admin/<?php echo htmlspecialchars($product['COVER_IMAGE']); ?>" alt="Main Product">
-          </div>
-          <div class="thumbnail-list">
-            <?php foreach ($images as $img):?>
-            <img src="admin/<?php echo htmlspecialchars($img['IMAGE_PATH']); ?>" onclick="document.getElementById('mainImg').src=this.src" alt="Thumb">
-            <?php endforeach;?>
-          </div>
-          
-          <p class="description">
-            <?php echo htmlspecialchars($product['PRODUCT_DES']);?>
-          </p>
+    <!-- product image -->
 
-          <!-- product info -->
-          <div class="accordion">
-            <div class="accordion-item">
-              <div class="accordion-header">Ingredients <span>+</span></div>
-              <div class="accordion-content">
-                <p><?php echo htmlspecialchars($product['INGREDIENTS'] ?? '') ;?></p>
+          <div class="product-gallery">
+              <div class="main-image">
+                  <img id="mainImg" src="admin/<?php echo htmlspecialchars($product['COVER_IMAGE']); ?>" alt="Main Product">
               </div>
-            </div>
-            <div class="accordion-item">
-              <div class="accordion-header">Allergens <span>+</span></div>
-              <div class="accordion-content">
-                <p><?php echo htmlspecialchars($product['ALLERGEN']);?></p>
+              <?php if (!empty($images)): ?>
+              <div class="thumbnail-list">
+                  <img src="admin/<?php echo htmlspecialchars($product['COVER_IMAGE']); ?>" class="active-thumb" onclick="switchMainImage(this.src, this)" alt="Thumb">
+                  <?php foreach ($images as $img):?>
+                  <img src="admin/<?php echo htmlspecialchars($img['IMAGE_PATH']); ?>" onclick="switchMainImage(this.src, this)" alt="Thumb">
+                  <?php endforeach;?>
               </div>
-            </div>
+              <?php endif; ?>
           </div>
-        </div>
 
           <div class="product-details">
             <div class="header-section">
               <div class="title-wrapper d-flex align-items-center justify-content-between">
-                <h1 class="product-title"><?php echo htmlspecialchars($product['PRODUCT_NAME']);?></h1>
+                <h1 class="product-title" data-base-name="<?php echo htmlspecialchars($product['PRODUCT_NAME']); ?>"><?php echo htmlspecialchars($product['PRODUCT_NAME']);?></h1>
                 <a class="wishlist-btn <?php echo $in_wishlist ? 'active' : ''; ?>" data-product-id="<?php echo $product_id;?>">
                 <i class="bi <?php echo $in_wishlist ? 'bi-heart-fill' : 'bi-heart'; ?>"></i></a>
               </div>
-              <span class="category-tag"><a href="product catalogue.php?id=<?php echo $product['CATEGORY_ID'];?>"><?php echo htmlspecialchars($product['CATEGORY_NAME']);?></a></span>
-              <div class="price">RM <span id="displayPrice"><?php echo number_format($initial_price, 2); ?></span></div>
+              <span class="category-tag"><a href="product catalogue.php?id=<?php echo $product['CATEGORY_NAME'];?>"><?php echo htmlspecialchars($product['CATEGORY_NAME']);?></a></span>
+              <div class="product-meta" style="font-size: 13px; color: var(--font2-color); margin-bottom: 10px;">
+                <?php if (!empty($product['BRAND'])): ?>
+                    <span>Brand: <strong><?php echo htmlspecialchars($product['BRAND']); ?></strong></span>
+                <?php endif; ?>
+                <?php if (!empty($product['PRODUCT_CODE'])): ?>
+                    <span style="margin-left: 15px;">Code: <strong><?php echo htmlspecialchars($product['PRODUCT_CODE']); ?></strong></span>
+                <?php endif; ?>
+              </div>
+              <div class="price-block">
+                  <div class="price">
+                      RM <span id="displayPrice">
+                          <?php 
+                          if ($min_price == $max_price) {
+                              echo number_format($min_price, 2);
+                          } else {
+                              echo number_format($min_price, 2) . ' - ' . number_format($max_price, 2);
+                          }
+                          ?>
+                      </span>
+                  </div>
+
+                  <?php if ($has_discount): ?>
+                  <div class="discount-line" id="discountLine">
+                      <span class="original-price" id="originalPriceText">
+                          RM <?php 
+                              if ($min_original == $max_original) {
+                                  echo number_format($min_original, 2);
+                              } else {
+                                  echo number_format($min_original, 2) . ' - RM' . number_format($max_original, 2);
+                              }
+                          ?>
+                      </span>
+                      <span class="discount-badge" id="discountBadge">
+                          -<?php echo ($min_discount == $max_discount) ? $min_discount : $min_discount . '~' . $max_discount; ?>%
+                      </span>
+                  </div>
+                  <?php endif; ?>
+              </div>
             </div>
             
             
@@ -640,35 +1038,26 @@ if (isset($_GET['cart_item_id'])) {
               </div>
 
               <!-- select size -->
-              <div class="selector-group">
-                <label>Select Size</label>
-                <select id="variantSelect" name="variant_id" onchange="updatePrice()">
-                  <?php foreach ($variants as $v): ?>
-                    <option value="<?php echo $v['VARIANT_ID'];?>" data-price="<?php echo $v['VARIANT_PRICE'];?>" data-stock="<?php echo intval($v['VARIANT_STOCK']); ?>">
-                      <?php echo htmlspecialchars($v['VARIANT_SIZE']);?> inch
-                    </option>
-                  <?php endforeach;?>
-                </select>
-              </div>
-
-              <!-- cake writing -->
-              <?php if($product['ALLOW_WRITING'] == 1):?>
-                <div class="selector-group" style="display: block;">
-                  <label>Cake Writing</label>
-                  <?php
-                  $cake_writing = '';
-                  if ($editing_cart_item) {
-                  $cake_writing = $editing_cart_item['CAKE_WRITING'];
-                  }
-                  ?>
-                  <textarea id="cakeWritingId" name="cake_writing" placeholder="Write your message here..."
-                  
-                  maxlength="50"><?php echo $cake_writing; ?></textarea>     
-                  <small style="color: var(--font2-color); float: right;">
-                    <span id="cakeCount">0</span> / 50
-                  </small>
-                </div>
-              <?php endif;?>
+              <?php if (!empty($option_groups)): ?>
+                <?php foreach ($option_groups as $idx => $group): ?>
+                      <div class="selector-group" style="display:block;">
+                          <label><?php echo htmlspecialchars($group['OPTION_NAME']); ?></label>
+                          <div class="option-btn-group" data-level="<?php echo $idx; ?>">
+                              <?php foreach ($group['VALUES'] as $val): ?>
+                                  <button type="button" class="option-btn" data-value-id="<?php echo $val['OPTION_VALUE_ID']; ?>">
+                                      <?php echo htmlspecialchars($val['VALUE_NAME']); ?>
+                                  </button>
+                              <?php endforeach; ?>
+                          </div>
+                      </div>
+                  <?php endforeach; ?>
+                  <input type="hidden" id="variantSelect" name="variant_id" value="" data-price="0" data-stock="0">
+              <?php else: ?>
+                  <input type="hidden" id="variantSelect" name="variant_id"
+                      value="<?php echo $variants[0]['VARIANT_ID'] ?? ''; ?>"
+                      data-price="<?php echo $initial_price; ?>"
+                      data-stock="<?php echo $initial_stock; ?>">
+              <?php endif; ?>
 
             <!-- add on -->
             <div class="add-ons">
@@ -766,6 +1155,72 @@ if (isset($_GET['cart_item_id'])) {
       </div>  
     </form>
 
+    <!-- product info accordion (Description, Features, Packing List) -->
+    <div class="product-info-section">
+      <div class="accordion">
+          <!-- Description Accordion Item -->
+          <div class="accordion-item active">
+              <div class="accordion-header">Description <span>-</span></div>
+              <div class="accordion-content">
+                  <div class="description-content">
+                      <?php echo !empty($clean_description) ? $clean_description : '<p>No description available for this product.</p>'; ?>
+                  </div>
+              </div>
+          </div>
+
+          <!-- Features Accordion Item -->
+          <div class="accordion-item">
+              <div class="accordion-header">Features <span>+</span></div>
+              <div class="accordion-content">
+                  <?php if (!empty($features_data)): ?>
+                      <?php foreach ($features_data as $group): ?>
+                          <?php if (!empty($group['category'])): ?>
+                              <p style="font-weight:bold; margin-bottom:4px; color: var(--font-color);"><?php echo htmlspecialchars($group['category']); ?></p>
+                          <?php endif; ?>
+                          <ul style="margin-bottom:12px;">
+                              <?php foreach ($group['points'] as $point): ?>
+                                  <li>
+                                      <?php echo is_array($point) ? htmlspecialchars($point['text']) : htmlspecialchars($point); ?>
+                                      <?php if (is_array($point) && !empty($point['sub_points'])): ?>
+                                          <ul>
+                                              <?php foreach ($point['sub_points'] as $sub): ?>
+                                                  <li><?php echo htmlspecialchars($sub); ?></li>
+                                              <?php endforeach; ?>
+                                          </ul>
+                                      <?php endif; ?>
+                                  </li>
+                              <?php endforeach; ?>
+                          </ul>
+                      <?php endforeach; ?>
+                  <?php else: ?>
+                      <p>No features listed.</p>
+                  <?php endif; ?>
+              </div>
+          </div>
+
+          <!-- Packing List Accordion Item -->
+          <div class="accordion-item">
+              <div class="accordion-header">Packing List <span>+</span></div>
+              <div class="accordion-content">
+                  <?php if (!empty($packing_data)): ?>
+                      <?php foreach ($packing_data as $group): ?>
+                          <?php if (!empty($group['group'])): ?>
+                              <p style="font-weight:bold; margin-bottom:4px; color: var(--font-color);"><?php echo htmlspecialchars($group['group']); ?></p>
+                          <?php endif; ?>
+                          <ul style="margin-bottom:12px;">
+                              <?php foreach ($group['items'] as $item): ?>
+                                  <li><?php echo intval($item['qty']); ?> x <?php echo htmlspecialchars($item['item']); ?></li>
+                              <?php endforeach; ?>
+                          </ul>
+                      <?php endforeach; ?>
+                  <?php else: ?>
+                      <p>No packing list available.</p>
+                  <?php endif; ?>
+              </div>
+          </div>
+      </div>
+    </div>
+
     <!-- reviews -->
     <div class="reviews-section">
       <h3>Customer Reviews</h3>
@@ -854,6 +1309,134 @@ if (isset($_GET['cart_item_id'])) {
   <?php include 'include/footer.php'?>
 
   <script>
+    const productVariants = <?php echo json_encode($variants); ?>;
+    const variantOptionMap = <?php echo json_encode($variant_option_map); ?>;
+    const optionGroups = <?php echo json_encode($option_groups); ?>;
+    let selectedOptions = {}; // level(数字) -> value_id
+
+    function findMatchingVariants(partialIds) {
+        return Object.keys(variantOptionMap).filter(vid =>
+            partialIds.every(sel => variantOptionMap[vid].includes(sel))
+        );
+    }
+
+    function selectOption(level, valueId, btn) {
+        selectedOptions[level] = valueId;
+        // 这一层之後的选择要重新算，先清掉更深层的选择
+        Object.keys(selectedOptions).forEach(k => {
+            if (parseInt(k) > level) delete selectedOptions[k];
+        });
+
+        btn.parentElement.querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+
+        updateAvailableOptions();
+        updateSelectedVariant();
+    }
+
+    function updateAvailableOptions() {
+        optionGroups.forEach((group, idx) => {
+            if (idx === 0) return; // 第一层永远全部可选
+
+            const priorIds = [];
+            for (let i = 0; i < idx; i++) {
+                if (selectedOptions[i] !== undefined) priorIds.push(selectedOptions[i]);
+            }
+            if (priorIds.length < idx) return; // 前面几层还没选完，先不处理这层
+
+            const matchingVids = findMatchingVariants(priorIds);
+            const validValueIds = new Set();
+            matchingVids.forEach(vid => {
+                variantOptionMap[vid].forEach(oid => {
+                    if (group.VALUES.some(v => v.OPTION_VALUE_ID == oid)) validValueIds.add(oid);
+                });
+            });
+
+            const container = document.querySelector(`.option-btn-group[data-level="${idx}"]`);
+            const buttons = container.querySelectorAll('.option-btn');
+            const onlyOne = validValueIds.size === 1;
+
+            buttons.forEach(btn => {
+                const vid = parseInt(btn.dataset.valueId);
+                if (validValueIds.has(vid)) {
+                    btn.style.display = '';
+                    btn.disabled = false;
+                    btn.classList.remove('auto-selected');
+                    if (onlyOne) {
+                        btn.classList.add('selected', 'auto-selected');
+                        btn.disabled = true;
+                        selectedOptions[idx] = vid;
+                    }
+                } else {
+                    btn.style.display = 'none';
+                    btn.classList.remove('selected');
+                }
+            });
+        });
+    }
+
+    function updateSelectedVariant() {
+        const selectedIds = Object.values(selectedOptions);
+        if (selectedIds.length < optionGroups.length) return;
+
+        const matches = findMatchingVariants(selectedIds)
+            .filter(vid => variantOptionMap[vid].length === selectedIds.length);
+        if (matches.length === 0) return;
+
+        const variant = productVariants.find(v => v.VARIANT_ID == matches[0]);
+        if (!variant) return;
+
+        const hidden = document.getElementById('variantSelect');
+        hidden.value = variant.VARIANT_ID;
+        hidden.dataset.price = variant.DISPLAY_PRICE;
+        hidden.dataset.stock = variant.VARIANT_STOCK;
+
+        const qtyInput = document.querySelector('input[name="quantity"]');
+        qtyInput.setAttribute('data-max', variant.VARIANT_STOCK);
+        if (parseInt(qtyInput.value) > variant.VARIANT_STOCK) qtyInput.value = variant.VARIANT_STOCK;
+        updateQtyButtonStates(qtyInput.parentElement);
+
+        //更新价格显示：从区间变成单一价格
+        const displayPrice = document.getElementById('displayPrice');
+        if (displayPrice) displayPrice.innerText = parseFloat(variant.DISPLAY_PRICE).toFixed(2);
+        
+        //更新标题副名字
+        const titleEl = document.querySelector('.product-title');
+        if (titleEl) {
+            const baseName = titleEl.dataset.baseName;
+            titleEl.innerHTML = variant.VARIANT_LABEL 
+                ? baseName + '<span class="variant-label">' + variant.VARIANT_LABEL + '</span>' 
+                : baseName;
+        }
+
+        //更新折扣显示
+        const discountLine = document.getElementById('discountLine');
+        const originalPriceText = document.getElementById('originalPriceText');
+        const discountBadge = document.getElementById('discountBadge');
+
+        if (variant.SALE_PRICE && parseFloat(variant.SALE_PRICE) < parseFloat(variant.VARIANT_PRICE)) {
+            const percent = Math.round((variant.VARIANT_PRICE - variant.SALE_PRICE) / variant.VARIANT_PRICE * 100);
+            if (originalPriceText) originalPriceText.innerText = 'RM ' + parseFloat(variant.VARIANT_PRICE).toFixed(2);
+            if (discountBadge) discountBadge.innerText = '-' + percent + '%';
+            if (discountLine) discountLine.style.display = 'flex';
+        } else {
+            if (discountLine) discountLine.style.display = 'none';
+        }
+
+        calculationTotal();
+    }
+
+    document.querySelectorAll('.option-btn-group').forEach(container => {
+        const level = parseInt(container.dataset.level);
+        container.querySelectorAll('.option-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                selectOption(level, parseInt(this.dataset.valueId), this);
+            });
+        });
+    });
+
+
+
     // info collapse
   document.querySelectorAll('.accordion-header').forEach(header => {
     header.addEventListener('click', () => {
@@ -871,6 +1454,13 @@ if (isset($_GET['cart_item_id'])) {
       }
     });
   });
+
+  function switchMainImage(src, thumbEl){
+    const mainImg = document.getElementById('mainImg');
+    if (mainImg) mainImg.src = src;
+    document.querySelectorAll('.thumbnail-list img').forEach(t => t.classList.remove('active-thumb'));
+    if (thumbEl) thumbEl.classList.add('active-thumb');
+  }
 
   //zooom image
 
@@ -943,7 +1533,7 @@ if (isset($_GET['cart_item_id'])) {
     //check whether if selected the variant
     const variantId = document.getElementById('variantSelect').value;
     if (!variantId) {
-      alert("Please select a size first!");
+      alert("Please select a variant first!");
       return;
     }
 
@@ -1077,8 +1667,7 @@ if (isset($_GET['cart_item_id'])) {
     if (!variantSelect) return;
 
     //get the variant price
-    const selectOption = variantSelect.options[variantSelect.selectedIndex];
-    const unitPrice = parseFloat(selectOption.getAttribute('data-price')) || 0;
+    const unitPrice = parseFloat(variantSelect.dataset.price) || 0;
 
     //get the quantity
     const qtyInput = document.querySelector('input[name="quantity"]');
@@ -1113,7 +1702,6 @@ if (isset($_GET['cart_item_id'])) {
     if (summaryProductPrice) summaryProductPrice.innerText = productSubtotal.toFixed(2);
     if (summaryOptionPrice) summaryOptionPrice.innerText = totalAddonPrice.toFixed(2);
     if (summaryTotal) summaryTotal.innerText = finalTotal.toFixed(2);
-    if (displayPrice) displayPrice.innerText = finalTotal.toFixed(2);
 
   }
 
