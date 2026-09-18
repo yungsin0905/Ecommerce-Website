@@ -1,0 +1,2 @@
+2026-09-15 16:44:07 ERROR: Unknown column 'SLOT_ID' in 'field list'
+2026-09-15 17:22:47 ERROR: Unknown column 'SLOT_ID' in 'field list'

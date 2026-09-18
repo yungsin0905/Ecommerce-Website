@@ -14,7 +14,7 @@ $bakery_info = $bakery_result->fetch_assoc();
 $category_result = $conn->query("
     SELECT CATEGORY_ID, CATEGORY_NAME 
     FROM category 
-    WHERE CATEGORY_STATUS = 'Active' AND IS_DELETED = 0
+    WHERE CATEGORY_STATUS = 'Active' AND PARENT_ID IS NULL AND IS_DELETED = 0
     ORDER BY CATEGORY_ID ASC
 ");
 $categories = [];
@@ -36,7 +36,7 @@ while ($cat = $category_result->fetch_assoc()) {
 
                 <!-- dropdown menu -->
                 <div class="dropdown-container">
-                    <a href="product catalogue.php?id=all" class="nav-link-item">All Cakes</a>
+                    <a href="all_categories.php" class="nav-link-item">Products</a>
 
                     <div class="mega-menu">
                         <div class="menu-column">
@@ -47,9 +47,9 @@ while ($cat = $category_result->fetch_assoc()) {
                             </ul>
                         </div>
                         <div class="menu-column">
-                            <h4>Cake Type</h4>
+                            <h4>Categories</h4>
                             <ul>
-                                <li><a href="product catalogue.php?id=all">All Cakes</a></li>
+                                <li><a href="all_categories.php">All Categories</a></li>
                                 <?php foreach ($categories as $category): ?>
                                     <li>
                                         <a href="product catalogue.php?id=<?= $category['CATEGORY_ID'] ?>">
@@ -63,7 +63,6 @@ while ($cat = $category_result->fetch_assoc()) {
                 </div>
 
                 <a href="voucher.php">Voucher</a>
-                <a href="Customise.php">Customise</a>
                 <a href="membership.php">Membership</a>
             </nav>
         </div>
@@ -112,7 +111,6 @@ while ($cat = $category_result->fetch_assoc()) {
                         <li class="list-group-item border-0"><a href="UserDashboard.php" class="text-decoration-none"><i class="bi bi-person-circle me-2"></i>User Profile</a></li>
                         <li class="list-group-item border-0"><a href="Wishlist.php" class="text-decoration-none"><i class="bi bi-heart-fill me-2"></i> Wishlist</a></li>
                         <li class="list-group-item border-0"><a href="shopping_cart.php" class="text-decoration-none"><i class="bi bi-cart-fill me-2"></i> Shopping Cart</a></li>
-                        <li class="list-group-item border-0"><a href="CustomiseRequest.php" class="text-decoration-none"><i class="bi bi-envelope-paper-fill me-2"></i> Customise Request</a></li>
                         <li class="list-group-item border-0"><a href="order_history.php" class="text-decoration-none"><i class="bi bi-clipboard2-check-fill me-2"></i> Order History</a></li>
                          <!-- //if logged in will change the icon to "logged out"
                         logged out will changed it to "sign up" -->

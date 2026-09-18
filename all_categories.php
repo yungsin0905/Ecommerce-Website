@@ -68,53 +68,45 @@ foreach ($parent_categories as $parent) {
             --font-color: #1B2A3C;
             --font2-color: #52708A;
             --search-border-color: #C9DCEE;
-             --main-color: #80b8d2;
             --main-dark: #3c8cb1;
-            --font-color:#1B2A3C;
             --secondary-color:#F4F8FC;
             --section-alt-bg: #F7FAFD;
             --card-bg-color: #EBF4FC;
             --rating-color:#F5A623;
-            --search-border-color:#C9DCEE;
             --border-subtle: #E2EDF7;
             --bg-color: #FFFFFF;
-            --font2-color:#52708A;
-            /*hover effect*/
             --transition: 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
         body { font-family: 'Inter', sans-serif; }
 
-         /* back section */
-      .back-section {
-        display: flex;
-        align-items: center;
-        margin: 30px 0 10px 20px; 
-      }
+        .back-section {
+            display: flex;
+            align-items: center;
+            margin: 30px 0 10px 20px; 
+        }
 
-      .back-link {
-        text-decoration: none;
-        color: var(--font2-color);
-        font-size: 16px;
-        font-weight: 500;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        transition: var(--transition);
-      }
+        .back-link {
+            text-decoration: none;
+            color: var(--font2-color);
+            font-size: 16px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: var(--transition);
+        }
 
-      .back-link:hover {
-        color: var(--accent-blue);
-        text-decoration: none;
-      }
+        .back-link:hover {
+            color: var(--main-color);
+            text-decoration: none;
+        }
 
         .category-section { 
-          margin: 40px 100px 0 100px; 
-
-          padding: 0 30px;
-          border-radius: 8px;
-          background: #f3f9ff;
-
-      }
+            margin: 40px 100px 0 100px; 
+            padding: 0 30px 20px 30px;
+            border-radius: 8px;
+            background: #f3f9ff;
+        }
         .category-header {
             display: flex; justify-content: space-between; align-items: center;
             margin-bottom: 15px;
@@ -123,7 +115,7 @@ foreach ($parent_categories as $parent) {
             font-size: 22px; 
             font-weight: 700; 
             color: var(--main-color);
-            margin-top: 50px;
+            margin-top: 30px;
         }
         .more-link { color: var(--font2-color); text-decoration: none; font-size: 14px; }
         .more-link:hover { color: var(--main-color); }
@@ -155,12 +147,12 @@ foreach ($parent_categories as $parent) {
     <?php include 'include/header.php'; ?>
 
     <div class="container-fluid">
-    <div class="back-section">
-      <a href="index.php" class="back-link">
-        <i class="bi bi-chevron-left"></i>Back
-      </a>
+        <div class="back-section">
+            <a href="index.php" class="back-link">
+                <i class="bi bi-chevron-left"></i>Back
+            </a>
+        </div>
     </div>
-  </div>
 
     <?php foreach ($sections as $section): ?>
         <section class="category-section">
@@ -180,7 +172,6 @@ foreach ($parent_categories as $parent) {
                                 <?= htmlspecialchars($p['PRODUCT_NAME']) ?>
                             </a>
                         </p>
-                      
                     </div>
                 <?php endforeach; ?>
             </div>

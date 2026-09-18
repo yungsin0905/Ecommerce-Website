@@ -13,7 +13,7 @@ if (session_status() === PHP_SESSION_NONE) {
 $product_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
   //retrieve product information
-  $query = "SELECT p.*, GROUP_CONCAT(DISTINCT c.CATEGORY_NAME SEPARATOR ', ') as CATEGORY_NAME,
+  $query = "SELECT p.*, GROUP_CONCAT(DISTINCT CONCAT(c.CATEGORY_ID, ':', c.CATEGORY_NAME) SEPARATOR '||') as CATEGORY_LIST,
   (SELECT AVG(RATING) FROM review WHERE PRODUCT_ID = p.PRODUCT_ID AND REVIEW_STATUS = 'Unhide') as CALCULATED_RATING,
   (SELECT COUNT(*) FROM review WHERE PRODUCT_ID = p.PRODUCT_ID AND REVIEW_STATUS = 'Unhide') as TOTAL_REVIEWS
   FROM product p
@@ -25,8 +25,7 @@ $product_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
               SELECT 1 FROM product_variant
               WHERE PRODUCT_ID = p.PRODUCT_ID 
               AND IS_DELETED = 0
-              AND VARIANT_STATUS = 'Active'
-              AND VARIANT_STOCK > 0)
+              AND VARIANT_STATUS = 'Active')
   GROUP BY p.PRODUCT_ID
   LIMIT 1";
             
@@ -42,6 +41,15 @@ $product_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
   $total_reviews = $product['TOTAL_REVIEWS'];
   $features_data = !empty($product['FEATURES']) ? json_decode($product['FEATURES'], true) : [];
 $packing_data  = !empty($product['PACKING_LIST']) ? json_decode($product['PACKING_LIST'], true) : [];
+$category_list = [];
+if (!empty($product['CATEGORY_LIST'])) {
+    foreach (explode('||', $product['CATEGORY_LIST']) as $item) {
+        $parts = explode(':', $item, 2);
+        if (count($parts) === 2) {
+            $category_list[] = ['id' => $parts[0], 'name' => $parts[1]];
+        }
+    }
+}
 
 //====== HTMLPurifier & 自定义样式处理 description ======
 require_once 'include/vendor/HTMLPurifier.standalone.php';
@@ -77,31 +85,35 @@ $clean_description = $purifier->purify($raw_desc);
 //=============================================
 
   //retrieve add on
-    $add_query = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE as CUSTOM_PRICE, pa.SORT_ORDER,
-      p2.PRODUCT_ID as ADDON_PRODUCT_ID, p2.PRODUCT_NAME, p2.COVER_IMAGE,
-      MIN(v2.VARIANT_ID) as ADDON_VARIANT_ID,
-      MIN(v2.VARIANT_PRICE) as VARIANT_PRICE,
-      SUM(v2.VARIANT_STOCK) as VARIANT_STOCK
-  FROM product_addon pa
-  JOIN product p2 ON pa.ADDON_PRODUCT_ID = p2.PRODUCT_ID
-  JOIN product_variant v2 ON v2.PRODUCT_ID = p2.PRODUCT_ID 
-      AND v2.IS_DELETED = 0 AND v2.VARIANT_STATUS = 'Active'
-  WHERE pa.HOST_PRODUCT_ID = $product_id 
-      AND pa.IS_DELETED = 0
-      AND p2.IS_DELETED = 0 AND p2.PRODUCT_STATUS = 'Active'
-  GROUP BY p2.PRODUCT_ID
-  ORDER BY pa.SORT_ORDER ASC";
+    $add_query = $add_query = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE as CUSTOM_PRICE, pa.SORT_ORDER, pa.ADDON_VARIANT_ID,
+  p2.PRODUCT_ID as ADDON_PRODUCT_ID, p2.PRODUCT_NAME, p2.COVER_IMAGE,
+  COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID)) as FINAL_VARIANT_ID,
+  (SELECT VARIANT_PRICE FROM product_variant WHERE VARIANT_ID = COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID))) as VARIANT_PRICE,
+  (SELECT VARIANT_STOCK FROM product_variant WHERE VARIANT_ID = COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID))) as VARIANT_STOCK,
+  (SELECT VARIANT_LABEL FROM product_variant WHERE VARIANT_ID = COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID))) as VARIANT_LABEL
+FROM product_addon pa
+JOIN product p2 ON pa.ADDON_PRODUCT_ID = p2.PRODUCT_ID
+JOIN product_variant v2 ON v2.PRODUCT_ID = p2.PRODUCT_ID 
+    AND v2.IS_DELETED = 0 AND v2.VARIANT_STATUS = 'Active'
+WHERE pa.HOST_PRODUCT_ID = $product_id 
+    AND pa.IS_DELETED = 0
+    AND p2.IS_DELETED = 0 AND p2.PRODUCT_STATUS = 'Active'
+GROUP BY p2.PRODUCT_ID
+ORDER BY pa.SORT_ORDER ASC";
   $add_result = mysqli_query($conn, $add_query);
   $all_addons = mysqli_fetch_all($add_result, MYSQLI_ASSOC);
 
   foreach ($all_addons as &$a) {
-      $a['ADD_ON_ID']    = $a['ADDON_PRODUCT_ID'];
-      $a['ADD_ON_NAME']  = $a['PRODUCT_NAME'];
-      $a['ADD_ON_IMAGE'] = $a['COVER_IMAGE'];
-      $a['ADD_ON_PRICE'] = !empty($a['CUSTOM_PRICE']) ? $a['CUSTOM_PRICE'] : $a['VARIANT_PRICE'];
-      $a['ADD_ON_STOCK'] = $a['VARIANT_STOCK'];
-  }
-  unset($a);
+    $a['ADD_ON_ID']    = $a['PRODUCT_ADDON_ID'];
+    $a['ADD_ON_PRODUCT_ID'] = $a['ADDON_PRODUCT_ID']; 
+    $a['ADD_ON_NAME']  = !empty($a['VARIANT_LABEL']) 
+        ? $a['PRODUCT_NAME'] . ' ' . $a['VARIANT_LABEL'] 
+        : $a['PRODUCT_NAME'];
+    $a['ADD_ON_IMAGE'] = $a['COVER_IMAGE'];
+    $a['ADD_ON_PRICE'] = !empty($a['CUSTOM_PRICE']) ? $a['CUSTOM_PRICE'] : $a['VARIANT_PRICE'];
+    $a['ADD_ON_STOCK'] = $a['VARIANT_STOCK'];
+}
+unset($a);
 
 
   //retrieve product image
@@ -111,7 +123,7 @@ $clean_description = $purifier->purify($raw_desc);
 
   //retrieve product variant
   $variant_query = "SELECT * FROM product_variant WHERE PRODUCT_ID = $product_id AND VARIANT_STATUS = 'Active' 
-  AND IS_DELETED = 0 AND VARIANT_STOCK > 0  
+  AND IS_DELETED = 0 
   ORDER BY VARIANT_ID ASC";
   $variant_result = mysqli_query($conn, $variant_query);
   $variants = mysqli_fetch_all($variant_result, MYSQLI_ASSOC);
@@ -146,7 +158,8 @@ $clean_description = $purifier->purify($raw_desc);
 
   //初始价格也要用 DISPLAY_PRICE
   $initial_price = count($variants) > 0 ? $variants[0]['DISPLAY_PRICE'] : 0.0;
-  $initial_stock = count($variants) > 0 ? intval($variants[0]['VARIANT_STOCK']) : 999;
+  $initial_stock = count($variants) > 0 ? intval($variants[0]['VARIANT_STOCK']) : 0;
+  $total_product_stock = array_sum(array_column($variants, 'VARIANT_STOCK'));
 
   //================================================================
   
@@ -265,20 +278,19 @@ if (isset($_GET['cart_item_id'])) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-      <link rel="stylesheet" href="css/header.css?v=6.0">
-      <link rel="stylesheet" href="css/footer.css?v=6.0">
-    <link rel="stylesheet" href="css/footer.css?v=6.0">
+      <link rel="stylesheet" href="css/header.css?v=7.0">
+      <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
       :root
       {
         --main-color:#80b8d2;
         --font-color:#1B2A3C;
-        --secondary-color:#F4F8FC;
-        --rating-color:#F5A623;
-        --search-border-color:#C9DCEE;
+        --secondary-color: #F4F8FC;
+        --rating-color: #F5A623;
+        --search-border-color: #C9DCEE;
         --bg-color:#FFFFFF;
-        --font2-color:#52708A;
+        --font2-color: #52708A;
       }
 
       body {
@@ -672,9 +684,9 @@ if (isset($_GET['cart_item_id'])) {
           color: var(--font2-color);
           cursor: pointer;
           font-size: 13px;
-          transition:0.3s;
+          transition: 0.25s ease;
       }
-      .option-btn:hover {
+      .option-btn:hover:not(.out-of-stock) {
           background: var(--secondary-color);
           color: var(--main-color);
       }
@@ -686,10 +698,54 @@ if (isset($_GET['cart_item_id'])) {
       }
       .option-btn.auto-selected {
           opacity: 0.7;
-          cursor: not-allowed;
+      }
+      .option-btn.out-of-stock {
+          background-color: #f1f5f9;
+          color: #94a3b8;
+          border: 1px solid #cbd5e1;
+          cursor: pointer;
+      }
+      .option-btn.out-of-stock:hover {
+          background-color: #e2e8f0;
+          color: #64748b;
+          border-color: #94a3b8;
+      }
+      .option-btn.out-of-stock.selected {
+          background-color: #e2e8f0 !important;
+          color: #334155 !important;
+          border: 1.5px solid #64748b !important;
+          font-weight: bold;
+          box-shadow: inset 0 2px 4px rgba(0,0,0,0.08);
       }
       .option-btn[style*="display: none"] {
           display: none;
+      }
+
+      .availability-row {
+        font-size: 12px;
+        color: var(--font2-color);
+        margin: 15px 0 20px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .availability-row strong.in-stock {
+        font-weight: 600;
+        color: #27ae60;
+      }
+
+      .availability-row strong.out-of-stock {
+        font-weight: 700;
+        color: #e74c3c;
+      }
+
+      .btn-disabled {
+        background-color: #cbd5e1 !important;
+        color: #64748b !important;
+        cursor: not-allowed !important;
+        opacity: 0.7 !important;
+        box-shadow: none !important;
       }
 
       .quantity-input {
@@ -735,6 +791,17 @@ if (isset($_GET['cart_item_id'])) {
       /* add ons */
       .add-ons {
         margin-top: 40px;
+        
+      }
+
+      .addon-info a {
+        text-decoration:none;
+        color: var(--font2-color);
+        transition:0.3s;
+      }
+
+      .addon-info a:hover {
+        color: var(--main-color);
       }
 
       .add-ons h3 {
@@ -809,7 +876,8 @@ if (isset($_GET['cart_item_id'])) {
 
       /* checkout summary */
       .checkout-summary {
-      border-radius: 8px;
+      margin-top: 40px;
+      border-top: 1px solid var(--main-color);
       }
 
       .subtotal-section span{
@@ -829,6 +897,7 @@ if (isset($_GET['cart_item_id'])) {
       .btn-add{
         background-color:var(--main-color);
         color: #fff;
+        transition:0.5s;
       }
 
       .btn-pay{
@@ -838,6 +907,7 @@ if (isset($_GET['cart_item_id'])) {
 
       .btn-add:hover,.btn-pay:hover{
         opacity:0.6;
+        transition:0.5s;
 
       }
 
@@ -856,11 +926,10 @@ if (isset($_GET['cart_item_id'])) {
       }
 
       .review-card {
-        background: #fff;
+        border-bottom: 1px solid var(--search-border-color);
         padding: 20px;
-        border-radius: 8px;
+        
         margin-top: 20px;
-        border: 1px solid var(--search-border-color);
       }
 
       .user-info {
@@ -983,15 +1052,31 @@ if (isset($_GET['cart_item_id'])) {
                 <a class="wishlist-btn <?php echo $in_wishlist ? 'active' : ''; ?>" data-product-id="<?php echo $product_id;?>">
                 <i class="bi <?php echo $in_wishlist ? 'bi-heart-fill' : 'bi-heart'; ?>"></i></a>
               </div>
-              <span class="category-tag"><a href="product catalogue.php?id=<?php echo $product['CATEGORY_NAME'];?>"><?php echo htmlspecialchars($product['CATEGORY_NAME']);?></a></span>
+              <?php foreach ($category_list as $cat): ?>
+                  <span class="category-tag"><a href="product catalogue.php?id=<?php echo urlencode($cat['id']); ?>"><?php echo htmlspecialchars($cat['name']); ?></a></span>
+              <?php endforeach; ?>
               <div class="product-meta" style="font-size: 13px; color: var(--font2-color); margin-bottom: 10px;">
                 <?php if (!empty($product['BRAND'])): ?>
                     <span>Brand: <strong><?php echo htmlspecialchars($product['BRAND']); ?></strong></span>
                 <?php endif; ?>
                 <?php if (!empty($product['PRODUCT_CODE'])): ?>
-                    <span style="margin-left: 15px;">Code: <strong><?php echo htmlspecialchars($product['PRODUCT_CODE']); ?></strong></span>
+                    <span id="codeWrapper" style="margin-left: 15px; <?php echo empty($product['PRODUCT_CODE']) ? 'display:none;' : ''; ?>">
+                        Code: <strong id="productCodeDisplay" data-product-code="<?php echo htmlspecialchars($product['PRODUCT_CODE']); ?>"><?php echo htmlspecialchars($product['PRODUCT_CODE']); ?></strong>
+                    </span>
                 <?php endif; ?>
-              </div>
+                <?php if (!empty($product['WARRANTY'])):
+                    $warranty_months = intval($product['WARRANTY']);
+                    if ($warranty_months > 0 && $warranty_months % 12 === 0) {
+                        $warranty_text = ($warranty_months / 12) . ' Year' . ($warranty_months / 12 > 1 ? 's' : '') . ' Warranty';
+                    } else {
+                        $warranty_text = $warranty_months . ' Month' . ($warranty_months > 1 ? 's' : '') . ' Warranty';
+                    }
+                ?>
+                    <span style="margin-left: 15px;">
+                        <i class="bi bi-shield-check"></i> <strong><?php echo $warranty_text; ?></strong>
+                    </span>
+                <?php endif; ?>
+            </div>
               <div class="price-block">
                   <div class="price">
                       RM <span id="displayPrice">
@@ -1026,18 +1111,7 @@ if (isset($_GET['cart_item_id'])) {
             
             
             <div class="selectors">
-              <div class="selector-group">
-
-                <!-- quantity -->
-                <label>Quantity:</label>
-                <div class="quantity-input">
-                  <button type="button" onclick="changeQty(this, -1)">-</button>
-                  <input type="text" name="quantity" value="1" data-max="<?= $initial_stock;?>" readonly>
-                  <button type="button" onclick="changeQty(this, 1)">+</button>
-                </div>
-              </div>
-
-              <!-- select size -->
+              <!-- select size / options -->
               <?php if (!empty($option_groups)): ?>
                 <?php foreach ($option_groups as $idx => $group): ?>
                       <div class="selector-group" style="display:block;">
@@ -1059,11 +1133,26 @@ if (isset($_GET['cart_item_id'])) {
                       data-stock="<?php echo $initial_stock; ?>">
               <?php endif; ?>
 
+              <!-- availability status -->
+              <div class="availability-row" id="availabilityRow">
+                Availability: <strong id="availabilityStatus" class="<?= $total_product_stock > 0 ? 'in-stock' : 'out-of-stock' ?>"><?= $total_product_stock > 0 ? $total_product_stock : 'Out Of Stock' ?></strong>
+              </div>
+
+              <!-- quantity -->
+              <div class="selector-group">
+                <label>Quantity:</label>
+                <div class="quantity-input" id="quantityContainer">
+                  <button type="button" onclick="changeQty(this, -1)">-</button>
+                  <input type="text" name="quantity" value="<?= $initial_stock > 0 ? '1' : '0' ?>" data-max="<?= $initial_stock;?>" readonly>
+                  <button type="button" onclick="changeQty(this, 1)">+</button>
+                </div>
+              </div>
+
             <!-- add on -->
+            <?php if (!empty($all_addons)): ?>
             <div class="add-ons">
               <h3>Add On</h3>
               <hr>
-              <?php if (count($all_addons) > 0): ?>
                 <?php foreach ($all_addons as $addon):?>
                   <?php 
                     $checked = false;
@@ -1089,7 +1178,8 @@ if (isset($_GET['cart_item_id'])) {
                     <?php endif;?>
 
                     <div class="addon-info">
-                      <p><?php echo htmlspecialchars($addon['ADD_ON_NAME']);?></p>
+                      <p><a href="product details.php?id=<?php echo $addon['ADD_ON_PRODUCT_ID']; ?>"><?php echo htmlspecialchars($addon['ADD_ON_NAME']); ?></a></p>
+                      
                       <span>RM <?php echo number_format($addon['ADD_ON_PRICE'],2);?></span>
                       <?php if ($addon['ADD_ON_STOCK'] <= 0): ?>
                         <small>Out of stock</small>
@@ -1121,9 +1211,8 @@ if (isset($_GET['cart_item_id'])) {
                     </div>
                   <?php endif;?>
                 <?php endforeach;?>
-              <?php endif;?>
-
             </div>
+            <?php endif;?>
 
              <!-- checkout summary section -->
        <div class="checkout-summary mt-4 p-3" >
@@ -1131,10 +1220,12 @@ if (isset($_GET['cart_item_id'])) {
               <span>Product Price (x<span id="summaryQty">1</span>)</span>
               <span>RM <span id="summaryProductPrice"><?php echo number_format($initial_price, 2); ?></span></span>
           </div>
+          <?php if (!empty($all_addons)): ?>
           <div class="subtotal-section d-flex justify-content-between mb-2">
               <span>Options Price (Add-ons)</span>
               <span>RM <span id="summaryOptionPrice">0.00</span></span>
           </div>
+          <?php endif; ?>
           <hr>
           <div class="total-section d-flex justify-content-between align-items-center mb-3">
               <strong style="font-size: 1.2rem;">Total</strong>
@@ -1321,80 +1412,243 @@ if (isset($_GET['cart_item_id'])) {
     }
 
     function selectOption(level, valueId, btn) {
-        selectedOptions[level] = valueId;
-        // 这一层之後的选择要重新算，先清掉更深层的选择
-        Object.keys(selectedOptions).forEach(k => {
-            if (parseInt(k) > level) delete selectedOptions[k];
-        });
+    selectedOptions[level] = valueId;
 
-        btn.parentElement.querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
+    btn.parentElement.querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
 
-        updateAvailableOptions();
-        updateSelectedVariant();
-    }
+    updateAvailableOptions();
+
+    // 重新检查每一层已选的值，如果在当前组合下已经不是合法选项（按钮被隐藏了），
+    // 就把内部记录和视觉选中状态都一起清掉，保持两边同步
+    optionGroups.forEach((group, idx) => {
+        if (selectedOptions[idx] === undefined) return;
+        const container = document.querySelector(`.option-btn-group[data-level="${idx}"]`);
+        if (!container) return;
+        const btnEl = container.querySelector(`.option-btn[data-value-id="${selectedOptions[idx]}"]`);
+        if (!btnEl || btnEl.style.display === 'none') {
+            delete selectedOptions[idx];
+            if (btnEl) btnEl.classList.remove('selected');
+        }
+    });
+
+    updateSelectedVariant();
+}
 
     function updateAvailableOptions() {
         optionGroups.forEach((group, idx) => {
-            if (idx === 0) return; // 第一层永远全部可选
-
             const priorIds = [];
             for (let i = 0; i < idx; i++) {
                 if (selectedOptions[i] !== undefined) priorIds.push(selectedOptions[i]);
             }
-            if (priorIds.length < idx) return; // 前面几层还没选完，先不处理这层
-
-            const matchingVids = findMatchingVariants(priorIds);
-            const validValueIds = new Set();
-            matchingVids.forEach(vid => {
-                variantOptionMap[vid].forEach(oid => {
-                    if (group.VALUES.some(v => v.OPTION_VALUE_ID == oid)) validValueIds.add(oid);
-                });
-            });
 
             const container = document.querySelector(`.option-btn-group[data-level="${idx}"]`);
+            if (!container) return;
             const buttons = container.querySelectorAll('.option-btn');
-            const onlyOne = validValueIds.size === 1;
+
+            let inStockCount = 0;
+            let lastInStockVid = null;
 
             buttons.forEach(btn => {
                 const vid = parseInt(btn.dataset.valueId);
-                if (validValueIds.has(vid)) {
-                    btn.style.display = '';
-                    btn.disabled = false;
-                    btn.classList.remove('auto-selected');
-                    if (onlyOne) {
-                        btn.classList.add('selected', 'auto-selected');
-                        btn.disabled = true;
-                        selectedOptions[idx] = vid;
-                    }
+
+                // 寻找在当前已选路径下，包含此选项的所有变体
+                let matchingVids = [];
+                if (idx === 0) {
+                    matchingVids = findMatchingVariants([vid]);
+                } else if (priorIds.length === idx) {
+                    matchingVids = findMatchingVariants([...priorIds, vid]);
                 } else {
+                    matchingVids = findMatchingVariants([vid]);
+                }
+
+                if (matchingVids.length === 0) {
+                    // 根本不存在该规格组合 -> 隐藏
                     btn.style.display = 'none';
-                    btn.classList.remove('selected');
+                    btn.classList.remove('selected', 'out-of-stock', 'auto-selected');
+                } else {
+                    // 存在该规格组合 -> 保持显示，允许点击
+                    btn.style.display = '';
+
+                    // 检查这些 matchingVids 是否有库存 (VARIANT_STOCK > 0)
+                    const hasStock = matchingVids.some(vId => {
+                        const v = productVariants.find(pv => pv.VARIANT_ID == vId);
+                        return v && parseInt(v.VARIANT_STOCK, 10) > 0;
+                    });
+
+                    if (hasStock) {
+                        btn.classList.remove('out-of-stock', 'auto-selected');
+                        btn.title = 'In Stock';
+                        inStockCount++;
+                        lastInStockVid = vid;
+                    } else {
+                        // 0 库存：显示为灰色，但仍允许点击选中以查看详情
+                        btn.classList.add('out-of-stock');
+                        btn.title = 'Out of Stock';
+                    }
                 }
             });
+
+            // 如果这一层仅剩 1 个有效选项，自动选中
+            if (inStockCount === 1 && idx > 0 && priorIds.length === idx) {
+                const autoBtn = container.querySelector(`.option-btn[data-value-id="${lastInStockVid}"]`);
+                if (autoBtn && !autoBtn.classList.contains('selected') && !autoBtn.classList.contains('out-of-stock')) {
+                    autoBtn.classList.add('selected', 'auto-selected');
+                    selectedOptions[idx] = lastInStockVid;
+                }
+            }
         });
     }
 
+    function renderPriceRange() {
+    const prices = productVariants.map(v => parseFloat(v.DISPLAY_PRICE));
+    const minP = prices.length ? Math.min(...prices) : 0;
+    const maxP = prices.length ? Math.max(...prices) : 0;
+
+    const displayPrice = document.getElementById('displayPrice');
+    if (displayPrice) {
+        displayPrice.innerText = (minP === maxP)
+            ? minP.toFixed(2)
+            : minP.toFixed(2) + ' - ' + maxP.toFixed(2);
+    }
+
+    //标题恢复主名字
+    const titleEl = document.querySelector('.product-title');
+    if (titleEl) titleEl.innerHTML = titleEl.dataset.baseName;
+
+    const codeDisplay = document.getElementById('productCodeDisplay');
+    if (codeDisplay) codeDisplay.textContent = codeDisplay.dataset.productCode;
+
+    //折扣区块：区间状态下暂不显示具体折扣（因为不确定哪一个 variant）
+    const discountLine = document.getElementById('discountLine');
+    if (discountLine) discountLine.style.display = 'none';
+}
+
     function updateSelectedVariant() {
         const selectedIds = Object.values(selectedOptions);
-        if (selectedIds.length < optionGroups.length) return;
+        const availEl = document.getElementById('availabilityStatus');
+        const addToCartBtn = document.getElementById('addToCartBtn');
+        const buyNowBtn = document.getElementById('buyNowBtn');
+        const qtyInput = document.querySelector('input[name="quantity"]');
 
-        const matches = findMatchingVariants(selectedIds)
-            .filter(vid => variantOptionMap[vid].length === selectedIds.length);
-        if (matches.length === 0) return;
+        if (optionGroups.length > 0 && selectedIds.length < optionGroups.length) {
+            // 尚未选完所有层级，恢复价格区间与总库存展示
+            renderPriceRange();
+            const hidden = document.getElementById('variantSelect');
+            if (hidden) {
+                hidden.value = '';
+                hidden.dataset.price = '0';
+                hidden.dataset.stock = '0';
+            }
+            if (availEl) {
+                const totalStock = productVariants.reduce((sum, v) => sum + (parseInt(v.VARIANT_STOCK, 10) || 0), 0);
+                availEl.innerHTML = totalStock > 0 ? totalStock : 'Out Of Stock';
+                availEl.className = totalStock > 0 ? 'in-stock' : 'out-of-stock';
+            }
+            if (addToCartBtn) {
+                addToCartBtn.disabled = false;
+                addToCartBtn.innerText = 'ADD TO CART';
+                addToCartBtn.classList.remove('btn-disabled');
+            }
+            if (buyNowBtn) {
+                buyNowBtn.disabled = false;
+                buyNowBtn.innerText = 'CHECK OUT';
+                buyNowBtn.classList.remove('btn-disabled');
+            }
+            if (qtyInput) {
+                const availableVids = selectedIds.length > 0 ? findMatchingVariants(selectedIds) : Object.keys(variantOptionMap);
+                const matchingVariants = productVariants.filter(v => availableVids.includes(String(v.VARIANT_ID)));
+                const maxStock = matchingVariants.length > 0
+                    ? Math.max(...matchingVariants.map(v => parseInt(v.VARIANT_STOCK, 10) || 0))
+                    : 0;
 
-        const variant = productVariants.find(v => v.VARIANT_ID == matches[0]);
-        if (!variant) return;
+                qtyInput.setAttribute('data-max', maxStock);
+                if (maxStock > 0) {
+                    if (parseInt(qtyInput.value, 10) > maxStock) qtyInput.value = maxStock;
+                    if (parseInt(qtyInput.value, 10) < 1) qtyInput.value = 1;
+                    qtyInput.disabled = false;
+                } else {
+                    qtyInput.value = 0;
+                    qtyInput.disabled = true;
+                }
+                updateQtyButtonStates(qtyInput.parentElement);
+            }
+            calculationTotal();
+            return;
+        }
+
+        let variant = null;
+        if (optionGroups.length > 0) {
+            const matches = findMatchingVariants(selectedIds)
+                .filter(vid => variantOptionMap[vid].length === selectedIds.length);
+            if (matches.length > 0) {
+                variant = productVariants.find(v => v.VARIANT_ID == matches[0]);
+            }
+        } else if (productVariants.length > 0) {
+            variant = productVariants[0];
+        }
+
+        if (!variant) {
+            renderPriceRange();
+            return;
+        }
 
         const hidden = document.getElementById('variantSelect');
-        hidden.value = variant.VARIANT_ID;
-        hidden.dataset.price = variant.DISPLAY_PRICE;
-        hidden.dataset.stock = variant.VARIANT_STOCK;
+        if (hidden) {
+            hidden.value = variant.VARIANT_ID;
+            hidden.dataset.price = variant.DISPLAY_PRICE;
+            hidden.dataset.stock = variant.VARIANT_STOCK;
+        }
 
-        const qtyInput = document.querySelector('input[name="quantity"]');
-        qtyInput.setAttribute('data-max', variant.VARIANT_STOCK);
-        if (parseInt(qtyInput.value) > variant.VARIANT_STOCK) qtyInput.value = variant.VARIANT_STOCK;
-        updateQtyButtonStates(qtyInput.parentElement);
+        const stock = parseInt(variant.VARIANT_STOCK, 10) || 0;
+
+        // 更新 Availability 实时库存显示与按钮状态
+        if (availEl) {
+            if (stock > 0) {
+                availEl.innerHTML = stock;
+                availEl.className = 'in-stock';
+            } else {
+                availEl.innerHTML = 'Out Of Stock';
+                availEl.className = 'out-of-stock';
+            }
+        }
+
+        if (qtyInput) {
+            qtyInput.setAttribute('data-max', stock);
+            if (stock > 0) {
+                if (parseInt(qtyInput.value, 10) <= 0) qtyInput.value = 1;
+                if (parseInt(qtyInput.value, 10) > stock) qtyInput.value = stock;
+                qtyInput.disabled = false;
+            } else {
+                qtyInput.value = 0;
+                qtyInput.disabled = true;
+            }
+            updateQtyButtonStates(qtyInput.parentElement);
+        }
+
+        if (addToCartBtn) {
+            if (stock > 0) {
+                addToCartBtn.disabled = false;
+                addToCartBtn.innerText = 'ADD TO CART';
+                addToCartBtn.classList.remove('btn-disabled');
+            } else {
+                addToCartBtn.disabled = true;
+                addToCartBtn.innerText = 'OUT OF STOCK';
+                addToCartBtn.classList.add('btn-disabled');
+            }
+        }
+
+        if (buyNowBtn) {
+            if (stock > 0) {
+                buyNowBtn.disabled = false;
+                buyNowBtn.innerText = 'CHECK OUT';
+                buyNowBtn.classList.remove('btn-disabled');
+            } else {
+                buyNowBtn.disabled = true;
+                buyNowBtn.innerText = 'OUT OF STOCK';
+                buyNowBtn.classList.add('btn-disabled');
+            }
+        }
 
         //更新价格显示：从区间变成单一价格
         const displayPrice = document.getElementById('displayPrice');
@@ -1407,6 +1661,12 @@ if (isset($_GET['cart_item_id'])) {
             titleEl.innerHTML = variant.VARIANT_LABEL 
                 ? baseName + '<span class="variant-label">' + variant.VARIANT_LABEL + '</span>' 
                 : baseName;
+        }
+
+        //更新 Code 显示：选中 variant 后显示该 variant 的 SKU，没有 SKU 就 fallback 回 product code
+        const codeDisplay = document.getElementById('productCodeDisplay');
+        if (codeDisplay) {
+            codeDisplay.textContent = variant.SKU ? variant.SKU : codeDisplay.dataset.productCode;
         }
 
         //更新折扣显示
@@ -1490,6 +1750,7 @@ if (isset($_GET['cart_item_id'])) {
       };
     });
 
+    updateAvailableOptions();
     calculationTotal();
   });
 
@@ -1534,6 +1795,12 @@ if (isset($_GET['cart_item_id'])) {
     const variantId = document.getElementById('variantSelect').value;
     if (!variantId) {
       alert("Please select a variant first!");
+      return;
+    }
+
+    const variantStock = parseInt(document.getElementById('variantSelect').dataset.stock || '0', 10);
+    if (variantStock <= 0) {
+      alert("Sorry, this option is currently out of stock!");
       return;
     }
 
@@ -1589,6 +1856,12 @@ if (isset($_GET['cart_item_id'])) {
       return;
     }
     
+    const variantStock = parseInt(document.getElementById('variantSelect').dataset.stock || '0', 10);
+    if (variantStock <= 0) {
+      alert("Sorry, this option is currently out of stock!");
+      return;
+    }
+
     //verify when user check the card box but field is empty
      const cardCheckbox = document.querySelector('input[name="selected_addons[]"][value="3"]');
       const cardMessage = document.getElementById('cardMessageInput');
@@ -1635,13 +1908,20 @@ if (isset($_GET['cart_item_id'])) {
     const variantSelect = document.getElementById('variantSelect');
     const qtyInput = document.querySelector('input[name="quantity"]');
     if (variantSelect && qtyInput) {
-      const selectOption = variantSelect.options[variantSelect.selectedIndex];
-      const stock = parseInt(selectOption.getAttribute('data-stock'), 10) || 1;
+      const rawStock = variantSelect.dataset.stock;
+      const stock = (rawStock !== undefined && rawStock !== '' && !isNaN(parseInt(rawStock, 10)))
+        ? parseInt(rawStock, 10)
+        : 0;
       qtyInput.setAttribute('data-max', stock);
 
-      let qty = parseInt(qtyInput.value, 10) || 1;
-      if (qty > stock) {
-        qtyInput.value = stock;
+      let qty = parseInt(qtyInput.value, 10) || 0;
+      if (stock > 0) {
+        if (qty > stock) qtyInput.value = stock;
+        if (qty < 1) qtyInput.value = 1;
+        qtyInput.disabled = false;
+      } else {
+        qtyInput.value = 0;
+        qtyInput.disabled = true;
       }
       updateQtyButtonStates(qtyInput.parentElement);
     }
@@ -1651,12 +1931,18 @@ if (isset($_GET['cart_item_id'])) {
   function updateQtyButtonStates(qtyContainer) {
     const input = qtyContainer.querySelector('input');
     if (!input) return;
-    const maxStock = parseInt(input.getAttribute('data-max'), 10) || 999;
-    const value = parseInt(input.value, 10) || 1;
+    const rawMax = input.getAttribute('data-max');
+    const maxStock = (rawMax !== null && rawMax !== '' && !isNaN(parseInt(rawMax, 10)))
+      ? parseInt(rawMax, 10)
+      : 0;
+    const minVal = maxStock > 0 ? 1 : 0;
+    const value = parseInt(input.value, 10) || 0;
+
     const minusBtn = qtyContainer.querySelector('button:first-child');
     const plusBtn = qtyContainer.querySelector('button:last-child');
-    if (minusBtn) minusBtn.disabled = value <= 1;
-    if (plusBtn) plusBtn.disabled = value >= maxStock;
+
+    if (minusBtn) minusBtn.disabled = value <= minVal || maxStock <= 0;
+    if (plusBtn) plusBtn.disabled = value >= maxStock || maxStock <= 0;
   }
 
 
@@ -1709,17 +1995,27 @@ if (isset($_GET['cart_item_id'])) {
   function changeQty(btn, delta) {
     const qtyContainer = btn.parentElement;
     const input = qtyContainer.querySelector('input');
-    const maxStock = parseInt(input.getAttribute('data-max'), 10) || 999;
-    let value = parseInt(input.value, 10) || 1;
+    const rawMax = input.getAttribute('data-max');
+    const maxStock = (rawMax !== null && rawMax !== '' && !isNaN(parseInt(rawMax, 10)))
+      ? parseInt(rawMax, 10)
+      : 0;
+
+    const minVal = maxStock > 0 ? 1 : 0;
+    let value = parseInt(input.value, 10);
+    if (isNaN(value)) value = minVal;
 
     value += delta;
-    input.value = Math.min(Math.max(1, value), maxStock);
+    if (value > maxStock) value = maxStock;
+    if (value < minVal) value = minVal;
+
+    input.value = value;
 
     updateQtyButtonStates(qtyContainer);
     calculationTotal();
   }
 
   document.addEventListener('DOMContentLoaded', function() {
+    updateAvailableOptions();
     updatePrice();
     document.querySelectorAll('.quantity-input').forEach(updateQtyButtonStates);
 

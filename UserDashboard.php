@@ -40,9 +40,7 @@ if (!$customer) {
 $address_query = "SELECT * FROM address WHERE CUSTOMER_ID = $customer_id ORDER BY IS_DEFAULT DESC";
 $address_result = mysqli_query($conn,$address_query);
 $address = mysqli_fetch_all($address_result, MYSQLI_ASSOC);
-$coverage_query = "SELECT * FROM delivery_coverage WHERE STATUS = 'Active' ORDER BY STATE, CITY";
-$coverage_result = mysqli_query($conn, $coverage_query);
-$coverage = mysqli_fetch_all($coverage_result, MYSQLI_ASSOC);
+
 
 
   //update info
@@ -230,8 +228,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST'){
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=6.0">
-    <link rel="stylesheet" href="css/footer.css?v=6.0">
+    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
   <style>
@@ -973,14 +971,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST'){
 
     <!-- card section -->
     <div class="personalize-cards">
-        <div class="row row-cols-1 row-cols-sm-2 row-cols-md-4 g-4"> 
-          <div class="col">
-                <div class="card action-card">
-                    <i class="bi bi-person-circle"></i>
-                    <h4 class="card-title">My Custom Request</h4>
-                    <a href="CustomiseRequest.php" class="arrow-btn"><i class="fa-solid fa-chevron-right"></i></a>
-                </div>
-            </div>
+        <div class="row row-cols-1 row-cols-sm-3 row-cols-md-3 g-4"> 
             <div class="col">
                 <div class="card action-card">
                     <i class="bi bi-heart-fill"></i>
@@ -1076,15 +1067,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST'){
                       <button class="addr-btn addr-btn-set" onclick="setDefault(<?php echo $addr['ADDRESS_ID']; ?>)">Set as Default</button>
                     <?php endif;?>
                     <button class="addr-btn addr-btn-edit" onclick="openEditAddress(
-                      <?php echo $addr['ADDRESS_ID']; ?>,
-                      '<?php echo addslashes($addr['FIRST_NAME']); ?>',
-                      '<?php echo addslashes($addr['LAST_NAME']); ?>',
-                      '<?php echo addslashes(preg_replace('/^\+60/', '', $addr['PHONE'])); ?>',
-                      '<?php echo addslashes($addr['ADDRESS_LINE']); ?>',
-                      '<?php echo addslashes($addr['CITY']); ?>',
-                      '<?php echo addslashes($addr['STATE']); ?>',
-                      '<?php echo addslashes($addr['COMPANY'] ?? ''); ?>',
-                      <?php echo $addr['IS_DEFAULT']; ?>)">
+                        <?php echo $addr['ADDRESS_ID']; ?>,
+                        '<?php echo addslashes($addr['FIRST_NAME']); ?>',
+                        '<?php echo addslashes($addr['LAST_NAME']); ?>',
+                        '<?php echo addslashes(preg_replace('/^\+60/', '', $addr['PHONE'])); ?>',
+                        '<?php echo addslashes($addr['ADDRESS_LINE']); ?>',
+                        '<?php echo addslashes($addr['CITY']); ?>',
+                        '<?php echo addslashes($addr['STATE']); ?>',
+                        '<?php echo addslashes($addr['POSTCODE']); ?>',
+                        '<?php echo addslashes($addr['COMPANY'] ?? ''); ?>',
+                        <?php echo $addr['IS_DEFAULT']; ?>)">
                       <i class="ti ti-pencil" aria-hidden="true"></i> Edit
                     </button>
 
@@ -1291,28 +1283,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST'){
               <div class="row mb-3">
                 <div class="col-md-6">
                   <label class="form-label">City <span class="text-danger">*</span></label>
-                  <select name="city" id="citySelect" class="form-select" required onchange="updatePostcode(this)">
-                    <option selected disabled value="">Choose your city...</option>
-                    <?php foreach($coverage as $area):?>
-                      <option value="<?php echo htmlspecialchars($area['CITY']); ?>"
-                      data-postcode="<?php echo htmlspecialchars($area['POSTCODE']); ?>"
-                      data-state="<?php echo htmlspecialchars($area['STATE']); ?>">
-                      <?php echo htmlspecialchars($area['CITY']); ?>
-                      </option>
-                    <?php endforeach;?>
-                  </select>
+                  <input type="text" name="city" id="citySelect" class="form-control modal-form" placeholder="Enter your city" maxlength="30" required>
                 </div>
 
-                <div class="col-md-6">
+                    <div class="col-md-6">
                   <label class="form-label">Postcode <span class="text-danger">*</span></label>
-                  <input type="text" name="postcode" id="postcodeInput" class="form-control modal-form" placeholder="Auto-filled" readonly>
+                  <input type="text" name="postcode" id="postcodeInput" class="form-control modal-form" placeholder="Enter postcode" maxlength="10" required>
                 </div>
               </div>
 
               <div class="mb-3">
                 <div class="col-md-6">
                   <label class="form-label">State <span class="text-danger">*</span></label>
-                  <input type="text" name="state" id="stateInput" class="form-control modal-form" placeholder="Auto-filled" readonly>
+                  <input type="text" name="state" id="stateInput" class="form-control modal-form" placeholder="Enter state" maxlength="30" required>
                 </div>
               </div>
               <div class="check-row">
@@ -1406,23 +1389,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST'){
       modal.show();
     }
 
-    function openEditAddress(addressId, firstName, lastName, phone, addressLine, city, state, company, isDefault) {
-      document.getElementById('editAddressModalLabel').textContent = 'Edit Address';
-      document.getElementById('addressId').value = addressId;
-      document.querySelector('[name="first_name"]').value = firstName;
-      document.querySelector('[name="last_name"]').value  = lastName;
-      document.querySelector('[id="addrPhone"]').value      = phone;
-      document.querySelector('[name="address_line"]').value = addressLine;
-      document.querySelector('[name="company"]').value    = company || '';
-      document.getElementById('setDefaultCheck').checked  = isDefault == 1;
+      function openEditAddress(addressId, firstName, lastName, phone, addressLine, city, state, postcode, company, isDefault) {
+    document.getElementById('editAddressModalLabel').textContent = 'Edit Address';
+    document.getElementById('addressId').value = addressId;
+    document.querySelector('[name="first_name"]').value = firstName;
+    document.querySelector('[name="last_name"]').value  = lastName;
+    document.querySelector('[id="addrPhone"]').value      = phone;
+    document.querySelector('[name="address_line"]').value = addressLine;
+    document.getElementById('citySelect').value = city;
+    document.getElementById('postcodeInput').value = postcode;
+    document.getElementById('stateInput').value = state;
+    document.querySelector('[name="company"]').value    = company || '';
+    document.getElementById('setDefaultCheck').checked  = isDefault == 1;
 
-      const citySelect = document.getElementById('citySelect');
-      citySelect.value = city;
-      updatePostcode(citySelect);
-
-      const modal = new bootstrap.Modal(document.getElementById('editAddressModal'));
-      modal.show();
-    }
+    const modal = new bootstrap.Modal(document.getElementById('editAddressModal'));
+    modal.show();
+  }
 
     function closeAddressModal() {
       document.getElementById('editAddressModal').classList.add('hidden');
@@ -1505,17 +1487,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST'){
       form.submit();
     }
 
-    //auto-filled postcode and state
-    function updatePostcode(select) {
-      const selected = select.options[select.selectedIndex];
-      if (!selected) return;
-      document.getElementById('postcodeInput').value = selected.dataset.postcode || '';
-      document.getElementById('stateInput').value    = selected.dataset.state    || '';
-    }
-
-    document.getElementById('citySelect').addEventListener('change', function() {
-      updatePostcode(this);
-    });
 
         //word counter
       function initCounter(textareaId, countId, max) {

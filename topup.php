@@ -32,8 +32,8 @@ if ($row = $result->fetch_assoc()) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=6.0">
-    <link rel="stylesheet" href="css/footer.css?v=6.0">
+    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
 <style>
@@ -191,13 +191,16 @@ if ($row = $result->fetch_assoc()) {
         font-family: 'Inter', sans-serif;
     }
 
+    .method-label span i {
+        margin-left: 10px;
+    }
+
     .method-label img {
         height: 30px;
         margin-left: 10px;
     }
 
     .method-label input[type="radio"] {
-        margin-left: auto;
         accent-color: var(--main-color);
     }
 
@@ -256,12 +259,6 @@ if ($row = $result->fetch_assoc()) {
         border: 1px solid var(--search-border-color);
     }
 
-    .details-box img {
-        object-fit: contain;
-        width: 30px;
-        height: 30px;
-    }
-
     .field-error {
         color: #c0392b;
         font-size: 12px;
@@ -271,7 +268,7 @@ if ($row = $result->fetch_assoc()) {
     }
 
     #ewallet {
-        display: flex;
+        display: none;
         flex-direction: row;
         flex-wrap: nowrap;
         gap: 15px;
@@ -281,46 +278,20 @@ if ($row = $result->fetch_assoc()) {
         font-size: 12px;
     }
 
-    .wallet-option {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        padding: 10px;
-        border-radius: 14px;
-        flex: 1;
-        gap: 8px;
-        border: 1.5px solid var(--search-border-color);
-        transition: var(--transition);
-        background-color: #fff;
-    }
-
-    .wallet-option:hover {
-        border-color: var(--main-color);
-        background-color: var(--secondary-color);
-    }
-
-    .wallet-option img {
+    #ewallet img {
+        display: block;
         width: 50px;
         height: 50px;
-        object-fit: contain;
-        margin-bottom: 8px;
+        margin: 5px auto;
         border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(27, 42, 60, 0.1);
     }
 
-    .wallet-option span {
-        font-size: 12px;
-        font-weight: 700;
+    #ewallet label {
         color: var(--font2-color);
+        font-weight: 700;
+        font-size: 12px;
         font-family: 'Inter', sans-serif;
-    }
-
-    .wallet-option input[type="radio"] {
-        margin: 0;
-        cursor: pointer;
-        transform: scale(1.2);
-        accent-color: var(--main-color);
     }
 
     hr {
@@ -377,77 +348,71 @@ if ($row = $result->fetch_assoc()) {
                 <h3>Select payment methods</h3>
 
                 <div class="method-group">
-                  <div class="method-options">
                     <label class="method-label">
-                       <span>Credit or Debit Card</span><br>
-                       <img src="icon/card.jpeg" alt="card-icon"><br>
-                       <input type="radio" name="payment_method" value="CREDIT OR DEBIT CARD" onclick="toggleDetails('card-info')" required><br/>
+                        <span>Credit or Debit Card <i class="bi bi-credit-card-fill"></i></span>
+                        <input type="radio" name="payment_method" value="CREDIT OR DEBIT CARD" onclick="toggleDetails('card-info')" required>
                     </label>
-             
-                <div id="card-info" class="details-box"> 
-                   <label for="cardholder_name" class="form-label top-up-label ">Cardholder's name</label>
-                   <input type="text" id="cardholder_name" name="cardholder_name" class="form-control top-up-control" maxlength="50" required/>
 
-                   <label for="card_number" class="form-label top-up-label">Card number</label>
-                   <input type="text" id="card_number" name="card_number" class="form-control top-up-control" maxlength="16" required/>
-                   <span id="card-number-error" class="field-error">Card number must be exactly 16 digits.</span>
+                    <div id="card-info" class="details-box"> 
+                       <label for="cardholder_name" class="form-label top-up-label">Cardholder's name</label>
+                       <input type="text" id="cardholder_name" name="cardholder_name" class="form-control top-up-control" maxlength="50" required/>
 
-                   <div class="row-group">
-                      <div>
-                         <label for="date" class="form-label top-up-label">Expiry Date</label>
-                         <input type="text" id="expiry_date" name="date" class="form-control top-up-control" placeholder="MM/YY" maxlength="5" required/>
-                         <span id="expiry-error" class="field-error"></span>
-                      </div>
-                      <div>
-                         <label for="cvc" class="form-label top-up-label">CVC</label>
-                         <input type="text" id="cvc" name="cvc" class="form-control top-up-control" maxlength="3" placeholder="123" required/>
-                         <span id="cvc-error" class="field-error">CVC must be exactly 3 digits.</span>
-                      </div>
-                   </div>
+                       <label for="card_number" class="form-label top-up-label">Card number</label>
+                       <input type="text" id="card_number" name="card_number" class="form-control top-up-control" maxlength="16" required/>
+                       <span id="card-number-error" class="field-error">Card number must be exactly 16 digits.</span>
+
+                       <div class="row-group">
+                          <div>
+                             <label for="date" class="form-label top-up-label">Expiry Date</label>
+                             <input type="text" id="expiry_date" name="date" class="form-control top-up-control" placeholder="MM/YY" maxlength="5" required/>
+                             <span id="expiry-error" class="field-error"></span>
+                          </div>
+                          <div>
+                             <label for="cvc" class="form-label top-up-label">CVC</label>
+                             <input type="text" id="cvc" name="cvc" class="form-control top-up-control" maxlength="3" placeholder="123" required/>
+                             <span id="cvc-error" class="field-error">CVC must be exactly 3 digits.</span>
+                          </div>
+                       </div>
+                    </div>
                 </div>
-               </div>
-             </div>
 
                 <hr>
 
                 <div class="method-group">
                     <label class="method-label">
-                        <span>FPX Online Banking <img src="icon/fpx.png" alt="fpx"></span>
+                        <span>FPX</span>
+                        <img src="image/logo/fpx.png" alt="fpx">
                         <input type="radio" name="payment_method" value="FPX" onclick="toggleDetails('none')">
                     </label>
                 </div>
 
                 <hr>
 
-            <div class="method-group">
-             <div class="method-options">
-                <label class="method-label">
-                   <span>E-wallet</span>
-                   <input type="radio"  name="payment_method" value="E-wallet" onclick="toggleDetails('ewallet')" required><br/>
-                </label>
-             </div>
-              <div id="ewallet" class="details-box">
-    
-              <label class="wallet-option">
-                  <img src="icon/tng.png" alt="tng">
-                  <span>Touch'n Go</span>
-                  <input type="radio" name="ewallet" value="Touch'n Go" required>
-              </label>
+                <div class="method-group">
+                    <label class="method-label">
+                        <span>E-Wallet</span>
+                        <input type="radio" name="payment_method" value="E-wallet" onclick="toggleDetails('ewallet')" required>
+                    </label>
 
-              <label class="wallet-option">
-                  <img src="icon/shopee.png" alt="shopee">
-                  <span>Shopee Pay</span>
-                  <input type="radio" name="ewallet" value="Shopee Pay">
-              </label>
-
-              <label class="wallet-option">
-                  <img src="icon/boost.png" alt="boost">
-                  <span>Boost</span>
-                  <input type="radio" name="ewallet" value="Boost">
-              </label>
-             </div>
-            </div>
-            <hr>
+                    <div id="ewallet" class="details-box">
+                        <label>
+                            <input type="radio" name="ewallet" value="Touch'n Go">
+                            <img src="image/logo/tng.png" alt="Touch n Go">
+                            Touch'n Go
+                        </label>
+                        <label>
+                            <input type="radio" name="ewallet" value="Shopee Pay">
+                            <img src="image/logo/shopee.png" alt="Shopee Pay">
+                            Shopee Pay
+                        </label>
+                        <label>
+                            <input type="radio" name="ewallet" value="Boost">
+                            <img src="image/logo/boost.png" alt="Boost">
+                            Boost
+                        </label>
+                    </div>
+                </div>
+                <hr>
                 <button type="submit" class="btn-pay" name="btn-pay">Topup Now</button>
             </div>
         </form>

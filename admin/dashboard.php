@@ -113,7 +113,7 @@ $pendingRefund        = $conn->query("
 
 // LOW STOCK TABLE
 $lowStock = $conn->query("
-    SELECT v.VARIANT_ID AS id, p.PRODUCT_NAME AS name, v.VARIANT_SIZE AS size, v.VARIANT_STOCK AS stock, 'VARIANT' AS type
+    SELECT v.VARIANT_ID AS id, p.PRODUCT_NAME AS name, v.VARIANT_LABEL AS size, v.VARIANT_STOCK AS stock, 'VARIANT' AS type
     FROM product_variant v
     JOIN product p ON p.PRODUCT_ID = v.PRODUCT_ID
     WHERE v.IS_DELETED = 0 AND v.VARIANT_STOCK <= 5 AND p.IS_DELETED = 0

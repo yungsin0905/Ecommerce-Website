@@ -43,11 +43,7 @@
 
       /* nav links, now living inline in the top bar */
       .nav-main{
-        display:flex;
-        align-items:center;
-        gap:6px;
-        margin:0;
-        padding:0;
+        display: none !important;
       }
 
       .nav-main a{
@@ -219,7 +215,7 @@
           background-color: transparent ; 
           padding: 0 ;
           margin: 0;
-          font-size: 16px ;
+          font-size: 14px ;
           font-weight: normal ;
           width: auto;
           text-align: left;
@@ -238,10 +234,15 @@
           color:var(--font-color);
         }
 
-        /* keep things usable on smaller screens: hide the inline
-           nav links and rely on the hamburger/offcanvas menu */
-        @media (max-width: 991px){
-          .nav-main{
-            display:none;
+        @media (max-width: 576px) {
+          .top-bar {
+            padding: 8px 14px;
+          }
+          .logo {
+            width: 80px;
+          }
+          .search-wrap.active .search-input {
+            width: 140px;
+            padding: 6px 4px 6px 12px;
           }
         }

@@ -4,8 +4,6 @@ session_start();
 include 'include/config.php';
 
 
-file_put_contents('debug.log', print_r($_POST, true));
-
 // 1. check login
 if(!isset($_SESSION['CUSTOMER_ID'])) {
     ob_end_clean();
@@ -26,14 +24,6 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
     $editing_cart_item_id = isset($_POST['cart_item_id'])
         ? intval($_POST['cart_item_id'])
         : 0;
-
-     // convert in to string
-    $cake_writing = !empty($_POST['cake_writing']) ? mysqli_real_escape_string($conn, $_POST['cake_writing']) : "";
-    $card_text = !empty($_POST['card_message']) ? mysqli_real_escape_string($conn, $_POST['card_message']) : "";
-
-    // handle null value
-    $cake_val = $cake_writing ? "'$cake_writing'" : "NULL";
-    $card_val = $card_text ? "'$card_text'" : "NULL";
 
     // C. process addon
     $selected_addons = $_POST['selected_addons'] ?? [];
@@ -114,11 +104,12 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
         $aqty = isset($addon_qtys[$addon_id_clean]) ? intval($addon_qtys[$addon_id_clean]) : 1;
 
         $addon_res = mysqli_query($conn,
-            "SELECT ADD_ON_NAME, ADD_ON_STOCK 
-            FROM add_on 
-            WHERE ADD_ON_ID = $addon_id_clean 
-            AND IS_DELETED = 0 
-            AND ADD_ON_STATUS = 'Active' 
+            "SELECT pa.ADDON_VARIANT_ID, ap.PRODUCT_NAME, apv.VARIANT_STOCK
+            FROM product_addon pa
+            JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
+            LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
+            WHERE pa.PRODUCT_ADDON_ID = $addon_id_clean 
+            AND pa.IS_DELETED = 0 
             LIMIT 1"
         );
 
@@ -131,26 +122,25 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
 
         $addon_row = mysqli_fetch_assoc($addon_res);
 
-        if ($aqty > intval($addon_row['ADD_ON_STOCK'])) {
+        // Only check stock if this addon is tied to a specific variant
+        if (!empty($addon_row['ADDON_VARIANT_ID']) && $aqty > intval($addon_row['VARIANT_STOCK'])) {
             ob_end_clean();
             header('Content-Type: application/json');
             echo json_encode([
                 'status'  => 'error',
-                'message' => "Add-on \"{$addon_row['ADD_ON_NAME']}\" insufficient stock, only {$addon_row['ADD_ON_STOCK']} left."
+                'message' => "Add-on \"{$addon_row['PRODUCT_NAME']}\" insufficient stock, only {$addon_row['VARIANT_STOCK']} left."
             ]);
             exit();
         }
     }
 
         if ($is_buynow) {
-            $_SESSION['buynow_item'] = [
-            'product_id'     => $product_id,
-            'variant_id'     => $variant_id,
-            'quantity'       => $qty,
-            'cake_writing'   => $cake_writing,
-            'card_message'   => $card_text,
-            'selected_addons'=> $selected_addons,
-            'addon_qtys'     => $addon_qtys,
+        $_SESSION['buynow_item'] = [
+            'product_id'      => $product_id,
+            'variant_id'      => $variant_id,
+            'quantity'        => $qty,
+            'selected_addons' => $selected_addons,
+            'addon_qtys'      => $addon_qtys,
         ];
         $_SESSION['checkout_mode'] = 'buynow';
 
@@ -172,7 +162,6 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
             AND PRODUCT_ID = $product_id
             AND VARIANT_ID = $variant_id
             AND IS_BUYNOW = $is_buynow
-            AND (CAKE_WRITING <=> $cake_val)
         ";
 
         $result = mysqli_query($conn, $check_sql);
@@ -187,20 +176,20 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
                 $existing_addons = [];
 
                 $addon_sql = "
-                    SELECT ADD_ON_ID, QUANTITY
-                    FROM cart_item_addon
-                    WHERE CART_ITEM_ID = $cart_item_id
-                ";
+                SELECT PRODUCT_ADD_ON_ID, QUANTITY
+                FROM cart_item_addon
+                WHERE CART_ITEM_ID = $cart_item_id
+            ";
 
-                $addon_res = mysqli_query($conn, $addon_sql);
+            $addon_res = mysqli_query($conn, $addon_sql);
 
-                while ($a = mysqli_fetch_assoc($addon_res)) {
+            while ($a = mysqli_fetch_assoc($addon_res)) {
 
-                    $existing_addons[] =
-                        intval($a['ADD_ON_ID']) .
-                        ':' .
-                        intval($a['QUANTITY']);
-                }
+                $existing_addons[] =
+                    intval($a['PRODUCT_ADD_ON_ID']) .
+                    ':' .
+                    intval($a['QUANTITY']);
+            }
 
                 // current addons
                 $current_addons = [];
@@ -237,7 +226,6 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
             UPDATE cart_item SET
             VARIANT_ID = $variant_id,
             QUANTITY = $qty,
-            CAKE_WRITING = $cake_val,
             IS_BUYNOW = $is_buynow
             WHERE CART_ITEM_ID = $editing_cart_item_id
         ";
@@ -267,8 +255,8 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
         foreach ($selected_addons as $addon_id) {
             $addon_id = intval($addon_id);
             $aqty = isset($addon_qtys[$addon_id]) ? intval($addon_qtys[$addon_id]) : 1;
-            $addon_sql = "INSERT INTO cart_item_addon (CART_ITEM_ID, ADD_ON_ID, QUANTITY, CARD_TEXT, CREATED_AT) 
-              VALUES ($editing_cart_item_id, $addon_id, $aqty, $card_val, NOW())";
+            $addon_sql = "INSERT INTO cart_item_addon (CART_ITEM_ID, PRODUCT_ADD_ON_ID, QUANTITY, CREATED_AT) 
+            VALUES ($editing_cart_item_id, $addon_id, $aqty, NOW())";
             mysqli_query($conn, $addon_sql); 
         }
 
@@ -303,7 +291,6 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
                 PRODUCT_ID,
                 VARIANT_ID,
                 QUANTITY,
-                CAKE_WRITING,
                 IS_BUYNOW,
                 CREATED_AT
             )
@@ -312,7 +299,6 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
                 $product_id,
                 $variant_id,
                 $qty,
-                $cake_val,
                 $is_buynow,
                 NOW()
             )
@@ -348,9 +334,8 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
                 INSERT INTO cart_item_addon
                 (
                     CART_ITEM_ID,
-                    ADD_ON_ID,
+                    PRODUCT_ADD_ON_ID,
                     QUANTITY,
-                    CARD_TEXT,
                     CREATED_AT
                 )
                 VALUES
@@ -358,7 +343,6 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
                     $cart_item_id,
                     $addon_id_clean,
                     $aqty,
-                    $card_val,
                     NOW()
                 )
             ";

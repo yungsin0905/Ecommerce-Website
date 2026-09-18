@@ -105,4 +105,5 @@ function sendMail(string $to, string $subject, string $body): bool {
         return false;
     }
 }
+
 ?>

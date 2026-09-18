@@ -7,6 +7,38 @@ if (!isset($_SESSION['CUSTOMER_ID'])) {
     exit;
 }
 $customer_id = intval($_SESSION['CUSTOMER_ID']);
+unset($_SESSION['checkout_mode']);
+unset($_SESSION['buynow_item']);
+/**
+ * Build a human-readable variant label from its selected option values.
+ * e.g. "Basic Kit (without body), With micro:bit"
+ * Falls back to product_variant.VARIANT_LABEL if set, or "Standard" if none.
+ */
+function build_variant_display_label($conn, $variant_id, $fallback_label = null) {
+    $variant_id = intval($variant_id);
+
+    $sql = "SELECT pov.VALUE_NAME
+            FROM variant_option_value vov
+            JOIN product_option_value pov ON vov.OPTION_VALUE_ID = pov.OPTION_VALUE_ID
+            JOIN product_option po ON pov.OPTION_ID = po.OPTION_ID
+            WHERE vov.VARIANT_ID = $variant_id
+              AND pov.IS_DELETED = 0
+            ORDER BY po.OPTION_ORDER ASC, pov.VALUE_ORDER ASC";
+
+    $res = mysqli_query($conn, $sql);
+    $parts = [];
+    if ($res) {
+        while ($row = mysqli_fetch_assoc($res)) {
+            $parts[] = $row['VALUE_NAME'];
+        }
+    }
+
+    if (!empty($parts)) {
+        return implode(', ', $parts);
+    }
+
+    return !empty($fallback_label) ? $fallback_label : 'Standard';
+}
 
 // 1. single item delete
 if (isset($_GET['action']) && $_GET['action'] == 'delete') {
@@ -42,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_selected'])) {
 }
 
 // 3. fetch cart items for current user
-$cart_sql = "SELECT ci.*, p.PRODUCT_NAME, p.COVER_IMAGE, pv.VARIANT_SIZE, pv.VARIANT_PRICE, pv.VARIANT_STOCK
+$cart_sql = "SELECT ci.*, p.PRODUCT_NAME, p.COVER_IMAGE, pv.VARIANT_LABEL as VARIANT_SIZE, pv.VARIANT_PRICE, pv.VARIANT_STOCK
         FROM cart_item ci
         JOIN cart c ON ci.CART_ID = c.CART_ID
         JOIN product p ON ci.PRODUCT_ID = p.PRODUCT_ID
@@ -58,24 +90,42 @@ $SUB_TOTAL = 0;
 
 while ($row = mysqli_fetch_assoc($cart_result)){
     $item_id = intval($row['CART_ITEM_ID']);
-    
+
+    // Build the readable option combination for this variant
+    $row['VARIANT_SIZE'] = build_variant_display_label($conn, $row['VARIANT_ID'], $row['VARIANT_SIZE']);
+
     // query addons for this cart item
-    $addon_query = "SELECT cia.*, a.ADD_ON_NAME, a.ADD_ON_PRICE 
-                    FROM cart_item_addon cia 
-                    JOIN add_on a ON cia.ADD_ON_ID = a.ADD_ON_ID 
-                    WHERE cia.CART_ITEM_ID = $item_id";
-    $addon_res = mysqli_query($conn, $addon_query);
-    
-    $addons = [];
-    $total_addon_price_per_item = 0; // single item's total addon price
-    
-    if ($addon_res) {
-        while ($addon = mysqli_fetch_assoc($addon_res)) {
-            $addons[] = $addon;
-            // calculate total addon price for this item
-            $total_addon_price_per_item += ($addon['ADD_ON_PRICE'] * $addon['QUANTITY']);
+    $addon_query = "SELECT cia.CART_ITEM_ADDON_ID, cia.QUANTITY,
+                       pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE AS OVERRIDE_PRICE,
+                       ap.PRODUCT_NAME AS ADD_ON_NAME,
+                       apv.VARIANT_PRICE, apv.SALE_PRICE
+                FROM cart_item_addon cia 
+                JOIN product_addon pa ON cia.PRODUCT_ADD_ON_ID = pa.PRODUCT_ADDON_ID
+                JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
+                LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
+                WHERE cia.CART_ITEM_ID = $item_id";
+        $addon_res = mysqli_query($conn, $addon_query);
+
+        $addons = [];
+        $total_addon_price_per_item = 0; // single item's total addon price
+
+        if ($addon_res) {
+            while ($addon = mysqli_fetch_assoc($addon_res)) {
+                // Resolve unit price: override price on product_addon, else variant sale/regular price
+                if ($addon['OVERRIDE_PRICE'] !== null) {
+                    $addon['ADD_ON_PRICE'] = floatval($addon['OVERRIDE_PRICE']);
+                } elseif (!empty($addon['SALE_PRICE']) && floatval($addon['SALE_PRICE']) > 0) {
+                    $addon['ADD_ON_PRICE'] = floatval($addon['SALE_PRICE']);
+                } else {
+                    $addon['ADD_ON_PRICE'] = floatval($addon['VARIANT_PRICE'] ?? 0);
+                }
+
+                $addons[] = $addon;
+                // calculate total addon price for this item
+                $total_addon_price_per_item += ($addon['ADD_ON_PRICE'] * $addon['QUANTITY']);
+            }
         }
-    }
+
     
     $row['addons'] = $addons;
     // define the price of one set of this item (cake variant price + all addons price)
@@ -158,8 +208,8 @@ $TOTAL_AMOUNT = $SUB_TOTAL;
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=6.0">
-    <link rel="stylesheet" href="css/footer.css?v=6.0">
+    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
     :root {
@@ -588,15 +638,11 @@ $TOTAL_AMOUNT = $SUB_TOTAL;
                                 <input type="checkbox" name="selected_items[]" class="item-checkbox" value="<?php echo $item['CART_ITEM_ID']; ?>" checked>
                             </td>
                             <!--Cake Image-->
-                            <td><img src="<?php echo htmlspecialchars($item['COVER_IMAGE']); ?>" class="cart-img" alt="cake"></td>
+                            <td><img src="<?php echo htmlspecialchars($item['COVER_IMAGE'] ?? 'icon/default_product.png'); ?>" class="cart-img" alt="product"></td>
                             <td>
                                 <strong><?php echo htmlspecialchars($item['PRODUCT_NAME']); ?></strong><br>
-                                <small class="text-muted">Size: <?php echo htmlspecialchars($item['VARIANT_SIZE']); ?></small><br>
+                                <small class="text-muted">Option: <?php echo htmlspecialchars($item['VARIANT_SIZE'] ?? 'N/A'); ?></small><br>
                                 
-                                <?php if (!empty($item['CAKE_WRITING'])): ?>
-                                    <small class="text-success"> Cake Writing: "<?php echo htmlspecialchars($item['CAKE_WRITING']); ?>"</small><br>
-                                <?php endif; ?>
-
                                 <!--Add-ons-->
                                 <?php if(!empty($item['addons'])): ?>
                                     <div class="mt-1 p-2 bg-light rounded" style="font-size: 0.85rem;">

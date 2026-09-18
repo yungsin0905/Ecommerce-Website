@@ -175,7 +175,7 @@ if (!empty($search) && $current_id == 0 && empty($cake_type)) {
 }
 
 // ===================== 价格筛选 =====================
-$having_clause = " HAVING MIN_PRICE BETWEEN $min AND $max AND SUM(v.VARIANT_STOCK) > 0 ";
+$having_clause = " HAVING MIN_PRICE BETWEEN $min AND $max ";
 
 // ===================== 计算总数 / 分页 =====================
 $total_sql = "SELECT COUNT(*) as total FROM (
@@ -202,7 +202,16 @@ if ($page < 1) $page = 1;
 $start_from = ($page - 1) * $per_page;
 
 // ===================== 主查询 =====================
-$sql = "SELECT p.*, MIN(v.VARIANT_PRICE) as MIN_PRICE, COUNT(v.VARIANT_ID) as VARIANT_COUNT
+$sql = "SELECT p.*, MIN(v.VARIANT_PRICE) as MIN_PRICE, COUNT(v.VARIANT_ID) as VARIANT_COUNT,
+        SUM(v.VARIANT_STOCK) as TOTAL_STOCK,
+        (SELECT COALESCE(NULLIF(v2.SALE_PRICE,0), v2.VARIANT_PRICE)
+        FROM product_variant v2
+        WHERE v2.PRODUCT_ID = p.PRODUCT_ID AND v2.IS_DELETED = 0 AND v2.VARIANT_STATUS = 'Active'
+        ORDER BY COALESCE(NULLIF(v2.SALE_PRICE,0), v2.VARIANT_PRICE) ASC LIMIT 1) AS DISPLAY_MIN_PRICE,
+        (SELECT v2.VARIANT_PRICE
+        FROM product_variant v2
+        WHERE v2.PRODUCT_ID = p.PRODUCT_ID AND v2.IS_DELETED = 0 AND v2.VARIANT_STATUS = 'Active'
+        ORDER BY COALESCE(NULLIF(v2.SALE_PRICE,0), v2.VARIANT_PRICE) ASC LIMIT 1) as ORIGINAL_PRICE_OF_MIN
         FROM product p
         LEFT JOIN product_variant v ON p.PRODUCT_ID = v.PRODUCT_ID
         LEFT JOIN product_category pc ON p.PRODUCT_ID = pc.PRODUCT_ID
@@ -227,8 +236,8 @@ if (!$product_result) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=6.0">
-    <link rel="stylesheet" href="css/footer.css?v=6.0">
+    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
     <style>
@@ -303,7 +312,6 @@ if (!$product_result) {
         }
         .cat-link:hover {
             color: var(--main-color);
-            background-color: var(--secondary-color);
             text-decoration: none;
         }
         .cat-link.active {
@@ -360,7 +368,56 @@ if (!$product_result) {
 
         .cake-grid{ display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 50px; }
         .cake-item { text-align: center; background: #fff; border: 1px solid var(--search-border-color); border-radius: 8px; transition: 0.35s ease; }
+        .cake-item.out-of-stock-item {
+            background-color: rgba(241, 245, 249, 0.75);
+            opacity: 0.75;
+        }
+        .cake-item.out-of-stock-item img {
+            filter: grayscale(40%);
+        }
         .cake-item img { height:220px; width: 100%; border-radius: 8px; aspect-ratio: 1/1; object-fit: cover; }
+        .cake-img-wrap {
+            position: relative;
+        }
+            .badge-best-seller,
+            .badge-discount,
+            .badge-out-of-stock {
+                position: absolute;
+                top: 8px;
+                left: 8px;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 4px 8px;
+                border-radius: 4px;
+                color: #fff;
+                z-index: 2;
+            }
+            .badge-best-seller {
+                background-color: #f5a623;
+            }
+            .badge-discount {
+                background-color: #3c8cb1;
+            }
+            .badge-out-of-stock {
+                background-color: #64748b;
+            }
+            .out-of-stock-badge-text {
+                display: inline-block;
+                background: #fee2e2;
+                color: #dc2626;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 2px 6px;
+                border-radius: 4px;
+                margin-left: 4px;
+            }
+            .original-price {
+                text-decoration: line-through;
+                color: #999;
+                font-size: 12px;
+                font-weight: normal;
+                margin-left: 6px;
+            }
         .cake-name{ color:var(--font2-color); font-weight:bold; font-family: 'Inter', sans-serif; margin:12px 10px 10px; font-size:13px; width:auto; }
         .cake-name a{ color:var(--font2-color); text-decoration:none; transition:0.3s; }
         .cake-name a:hover{ color:var(--main-color); }
@@ -513,9 +570,25 @@ if (!$product_result) {
                             $cover = !empty($row['COVER_IMAGE'])
                                 ? "admin/" . str_replace(['\\', ' ', '&'], ['/', '%20', '%26'], $row['COVER_IMAGE'])
                                 : "image/placeholder.jpg";
+
+                                $display_price = $row['DISPLAY_MIN_PRICE'];
+                                $original_price = $row['ORIGINAL_PRICE_OF_MIN'];
+                                $has_discount = ($original_price > $display_price);
+                                $discount_percent = $has_discount ? round((($original_price - $display_price) / $original_price) * 100) : 0;
+                                $is_best_seller = ($row['SALES_COUNT'] >= 50);
+                                $is_out_of_stock = isset($row['TOTAL_STOCK']) && intval($row['TOTAL_STOCK']) <= 0;
                             ?>
-                            <div class="cake-item">
-                                <img src="<?php echo $cover; ?>" alt="<?php echo htmlspecialchars($row['PRODUCT_NAME']); ?>">
+                            <div class="cake-item <?= $is_out_of_stock ? 'out-of-stock-item' : '' ?>">
+                                <div class="cake-img-wrap">
+                                    <img src="<?php echo $cover; ?>" alt="<?php echo htmlspecialchars($row['PRODUCT_NAME']); ?>">
+                                    <?php if ($is_out_of_stock): ?>
+                                        <span class="badge-out-of-stock">OUT OF STOCK</span>
+                                    <?php elseif ($is_best_seller): ?>
+                                        <span class="badge-best-seller">BEST SELLER</span>
+                                    <?php elseif ($has_discount): ?>
+                                        <span class="badge-discount">-<?php echo $discount_percent; ?>%</span>
+                                    <?php endif; ?>
+                                </div>
                                 <p class="cake-name"><a href="product details.php?id=<?php echo $row['PRODUCT_ID']; ?>"><?php echo htmlspecialchars($row['PRODUCT_NAME']); ?></a></p>
                                 <div class="stars">
                                     <?php
@@ -526,8 +599,14 @@ if (!$product_result) {
                                     ?>
                                     <span class="ms-1">(<?php echo number_format($row['AVG_RATING'], 1); ?>)</span>
                                     <p class="price">
-                                        <?php if ($row['MIN_PRICE'] !== null): ?>
-                                            RM <?php echo number_format($row['MIN_PRICE'], 2); ?><?php echo ($row['VARIANT_COUNT'] > 1) ? '++' : ''; ?>
+                                        <?php if ($display_price !== null): ?>
+                                            RM <?php echo number_format($display_price, 2); ?><?php echo ($row['VARIANT_COUNT'] > 1) ? '++' : ''; ?>
+                                            <?php if ($has_discount): ?>
+                                                <span class="original-price">RM <?php echo number_format($original_price, 2); ?></span>
+                                            <?php endif; ?>
+                                            <?php if ($is_out_of_stock): ?>
+                                                <span class="out-of-stock-badge-text">Out of Stock</span>
+                                            <?php endif; ?>
                                         <?php else: ?>
                                             no quotation
                                         <?php endif; ?>

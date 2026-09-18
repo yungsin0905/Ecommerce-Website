@@ -63,11 +63,13 @@
 
     .footer-col ul li {
         margin-bottom: 8px;
+        font-size: 14px;
     }
 
     .footer-col a {
         text-decoration: none;
         color: var(--font2-color);
+        font-size: 14px;
     }
 
     .links a:hover{

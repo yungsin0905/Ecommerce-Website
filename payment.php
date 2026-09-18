@@ -2,6 +2,7 @@
 session_start();
 require_once 'include/config.php';
 
+
 // 1. Check if user is logged in
 if (!isset($_SESSION['CUSTOMER_ID'])) {
     header("Location: login.php");
@@ -9,15 +10,37 @@ if (!isset($_SESSION['CUSTOMER_ID'])) {
 }
 $customer_id = intval($_SESSION['CUSTOMER_ID']);
 
-// 2. Make sure user came from checkout
-$selected_item_ids = isset($_POST['selected_items']) ? $_POST['selected_items'] : [];
-$custom_ids        = isset($_POST['custom_ids'])     ? $_POST['custom_ids']     : [];
+// 验证 self collection 是否合法：僅限居銮地址
+if (isset($_POST['shipping_method']) && $_POST['shipping_method'] === 'self_collection') {
+    $address_id = intval($_POST['address_id'] ?? 0);
+    $check_sql = "SELECT CITY FROM address WHERE ADDRESS_ID = $address_id AND CUSTOMER_ID = $customer_id";
+    $check_res = mysqli_query($conn, $check_sql);
+    $check_row = mysqli_fetch_assoc($check_res);
 
-// Check if it's a "Buy Now" single product purchase
+    if (!$check_row || strtolower(trim($check_row['CITY'])) !== 'kluang') {
+        echo "<script>alert('Self Collection is only available for Kluang addresses.'); window.location.href='checkout.php';</script>";
+        exit;
+    }
+}
+
+// 2. Get selected cart items (from POST, or fall back to session set during checkout)
+$selected_item_ids = isset($_POST['selected_items']) ? (array)$_POST['selected_items'] : [];
+if (empty($selected_item_ids) && isset($_SESSION['checkout_selected_items']) && is_array($_SESSION['checkout_selected_items'])) {
+    $selected_item_ids = $_SESSION['checkout_selected_items'];
+}
+
+// Sanitize: keep only positive integers, drop empties/duplicates
+$selected_item_ids = array_values(array_unique(array_filter(
+    array_map('intval', $selected_item_ids),
+    fn($v) => $v > 0
+)));
+
+// Check if it's a "Buy Now" single product purchase (item is still a normal cart_item row, just flagged)
 $is_buynow = (isset($_POST['checkout_mode']) && $_POST['checkout_mode'] === 'buynow') ||
              (isset($_SESSION['checkout_mode']) && $_SESSION['checkout_mode'] === 'buynow');
-// Redirect to cart if no items selected and not a buy-now action
-if (empty($selected_item_ids) && empty($custom_ids) && !$is_buynow) {
+
+// Nothing to pay for -> back to cart
+if (empty($selected_item_ids) && !$is_buynow) {
     header("Location: shopping_cart.php");
     exit;
 }
@@ -29,11 +52,18 @@ $user_sql    = "SELECT CUSTOMER_ID, CUSTOMER_NAME, EMAIL, PHONE, WALLET_BALANCE
 $user_result = mysqli_query($conn, $user_sql);
 $user_data   = mysqli_fetch_assoc($user_result);
 
+if (!$user_data) {
+    // Customer record missing/deleted - force re-login
+    session_destroy();
+    header("Location: login.php");
+    exit;
+}
 
 // 4. Carry over delivery info from checkout page
-$address_id        = intval($_POST['address_id']      ?? 0);
-$delivery_date     = $_POST['delivery_date']   ?? date('Y-m-d');
-$delivery_time     = $_POST['delivery_time']   ?? '';
+$address_id    = intval($_POST['address_id']    ?? 0);
+$delivery_date = $_POST['delivery_date']         ?? date('Y-m-d');
+$delivery_time = $_POST['delivery_time']         ?? '';
+
 $passed_voucher_id = intval($_POST['voucher_id'] ?? 0);
 
 $full_name        = $_POST['full_name']        ?? '';
@@ -43,192 +73,150 @@ $city             = $_POST['city']             ?? '';
 $postcode         = $_POST['postcode']         ?? '';
 $state            = $_POST['state']            ?? '';
 
-
-// 5. Shipping Fee Calculation
+// 5. Shipping Fee — free nationwide delivery for now
+// (delivery_coverage table is kept in the schema for future use,
+//  e.g. if certain states/postcodes need a fee later)
 $SHIPPING_FEE = 0.00;
+$cart_items = [];
+$SUB_TOTAL  = 0;
+// 6a. Buy Now item (single product purchased directly, bypassing the cart)
+if ($is_buynow && isset($_SESSION['buynow_item'])) {
+    $bn         = $_SESSION['buynow_item'];
+    $variant_id = intval($bn['variant_id'] ?? 0);
+    $qty        = intval($bn['quantity']   ?? 1);
 
-if ($address_id > 0) {
-    // Normal/buynow: get fee from selected address
-    $addr_sql = "SELECT dc.DELIVERY_FEE
-                 FROM address a
-                 LEFT JOIN delivery_coverage dc
-                        ON a.POSTCODE = dc.POSTCODE
-                       AND dc.STATUS = 'Active'
-                 WHERE a.ADDRESS_ID  = $address_id
-                   AND a.CUSTOMER_ID = $customer_id";
-    $addr_res = mysqli_query($conn, $addr_sql);
-    if ($addr_row = mysqli_fetch_assoc($addr_res)) {
-        $SHIPPING_FEE = !empty($addr_row['DELIVERY_FEE'])
-                        ? floatval($addr_row['DELIVERY_FEE'])
-                        : 0.00;
-    }
-} elseif (!empty($custom_ids)) {
-    // Custom cake: address_id is 0, get fee directly from postcode 81000
-    $fee_res = mysqli_query($conn,
-        "SELECT DELIVERY_FEE FROM delivery_coverage 
-         WHERE POSTCODE = '81000' AND STATUS = 'Active' LIMIT 1"
-    );
-    if ($fee_row = mysqli_fetch_assoc($fee_res)) {
-        $SHIPPING_FEE = floatval($fee_row['DELIVERY_FEE']);
-    }
-}
+    if ($variant_id > 0) {
+        $sql = "SELECT pv.VARIANT_ID, pv.PRODUCT_ID, pv.VARIANT_LABEL, pv.SKU,
+                       pv.VARIANT_PRICE, pv.SALE_PRICE, pv.VARIANT_STOCK,
+                       p.PRODUCT_NAME, p.COVER_IMAGE, p.PRODUCT_CODE, p.BRAND
+                FROM product_variant pv
+                LEFT JOIN product p ON pv.PRODUCT_ID = p.PRODUCT_ID
+                WHERE pv.VARIANT_ID = $variant_id
+                  AND p.IS_DELETED = 0";
+        $result = mysqli_query($conn, $sql);
+        $row    = $result ? mysqli_fetch_assoc($result) : null;
 
-// 6A. pre-made cart items 
-$cart_items           = [];
-$SUB_TOTAL            = 0;
-$capacity_cakes_count = 0;
+        if ($row) {
+            $unit_price = (!empty($row['SALE_PRICE']) && floatval($row['SALE_PRICE']) > 0)
+                          ? floatval($row['SALE_PRICE'])
+                          : floatval($row['VARIANT_PRICE']);
 
-// Handle buy now mode — fetch product data directly from session instead of cart
-if ($is_buynow && empty($selected_item_ids) && isset($_SESSION['buynow_item'])) {
-    $item = $_SESSION['buynow_item'];
-    $variant_id = intval($item['variant_id']);
-    $qty = intval($item['quantity']);
+            $row['final_unit_price'] = $unit_price;
+            $row['QUANTITY']         = $qty;
+            $row['CART_ITEM_ID']     = 'buynow'; // no real cart_item row for this purchase
 
-    $sql = "SELECT p.PRODUCT_NAME, p.COVER_IMAGE, p.ALLOW_WRITING,
-                   pv.VARIANT_SIZE, pv.VARIANT_PRICE, pv.VARIANT_STOCK, pv.VARIANT_ID, pv.PRODUCT_ID
-            FROM product_variant pv
-            JOIN product p ON pv.PRODUCT_ID = p.PRODUCT_ID
-            WHERE pv.VARIANT_ID = $variant_id AND p.IS_DELETED = 0 LIMIT 1";
-    $res = mysqli_query($conn, $sql);
-    $row = mysqli_fetch_assoc($res);
+            // Add-ons chosen at Buy Now time (keyed by PRODUCT_ADDON_ID => qty)
+            $row['addons']        = [];
+            $addon_total_for_item = 0;
 
-    if ($row) {
-        $addon_total = 0;
-        $addons = [];
-        // Calculate dynamic add-on pricing for Buy Now
-        foreach (($item['selected_addons'] ?? []) as $addon_id) {
-            $addon_id = intval(trim($addon_id));
-            $aqty = intval($item['addon_qtys'][$addon_id] ?? 1);
-            $addon_res = mysqli_query($conn, "SELECT * FROM add_on WHERE ADD_ON_ID = $addon_id AND IS_DELETED = 0");
-            $addon_row = mysqli_fetch_assoc($addon_res);
-            if ($addon_row) {
-                $addon_row['QUANTITY'] = $aqty;
-                $addon_row['CARD_TEXT'] = $item['card_message'] ?? '';
-                $addons[] = $addon_row;
-                $addon_total += floatval($addon_row['ADD_ON_PRICE']) * $aqty;
+            foreach (($bn['addon_qtys'] ?? []) as $addon_id => $addon_qty) {
+                $addon_id  = intval($addon_id);
+                $addon_qty = intval($addon_qty);
+                if ($addon_id <= 0 || $addon_qty <= 0) continue;
+
+                $addon_sql = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE AS OVERRIDE_PRICE,
+                                     ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME,
+                                     apv.VARIANT_LABEL AS ADDON_VARIANT_LABEL,
+                                     apv.VARIANT_PRICE AS ADDON_VARIANT_PRICE,
+                                     apv.SALE_PRICE AS ADDON_VARIANT_SALE_PRICE
+                              FROM product_addon pa
+                              JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
+                              LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
+                              WHERE pa.PRODUCT_ADDON_ID = $addon_id
+                                AND pa.IS_DELETED = 0";
+                $addon_result = mysqli_query($conn, $addon_sql);
+                $addon        = $addon_result ? mysqli_fetch_assoc($addon_result) : null;
+
+                if ($addon) {
+                    if ($addon['OVERRIDE_PRICE'] !== null) {
+                        $addon_unit_price = floatval($addon['OVERRIDE_PRICE']);
+                    } elseif (!empty($addon['ADDON_VARIANT_SALE_PRICE']) && floatval($addon['ADDON_VARIANT_SALE_PRICE']) > 0) {
+                        $addon_unit_price = floatval($addon['ADDON_VARIANT_SALE_PRICE']);
+                    } else {
+                        $addon_unit_price = floatval($addon['ADDON_VARIANT_PRICE'] ?? 0);
+                    }
+
+                    $addon['ADDON_QTY']   = $addon_qty;
+                    $addon['UNIT_PRICE']  = $addon_unit_price;
+                    $addon_total_for_item += $addon_unit_price * $addon_qty;
+                    $row['addons'][]       = $addon;
+                }
             }
+
+            $row['SINGLE_SET_PRICE'] = $unit_price + $addon_total_for_item;
+            $SUB_TOTAL               += $row['SINGLE_SET_PRICE'] * $qty;
+
+            $cart_items[] = $row;
         }
-
-        $unit_price = floatval($row['VARIANT_PRICE']);
-        $row['is_custom'] = false;
-        $row['final_unit_price'] = $unit_price;
-        $row['SINGLE_SET_PRICE'] = $unit_price + $addon_total;
-        $row['QUANTITY'] = $qty;
-        $row['CAKE_WRITING'] = $item['cake_writing'] ?? '';
-        $row['CART_ITEM_ID'] = 'buynow_temp';
-        $row['addons'] = $addons;
-
-        $SUB_TOTAL += $row['SINGLE_SET_PRICE'] * $qty;
-        $cart_items[] = $row;
     }
-}
+}elseif (!empty($selected_item_ids)) {
+    // 6b. Cart items (from shopping cart checkout)
+    $ids_string = implode(',', $selected_item_ids);
 
-// Handle items selected from the user's saved shopping cart
-if (!empty($selected_item_ids)) {
-    $ids_string = implode(',', array_map('intval', $selected_item_ids));
-
-    $sql = "SELECT ci.*, p.PRODUCT_NAME, p.COVER_IMAGE,
-                   pv.VARIANT_SIZE, pv.VARIANT_PRICE, pv.VARIANT_STOCK
+    $sql = "SELECT ci.CART_ITEM_ID, ci.PRODUCT_ID, ci.VARIANT_ID, ci.QUANTITY,
+                   p.PRODUCT_NAME, p.COVER_IMAGE, p.PRODUCT_CODE, p.BRAND,
+                   pv.VARIANT_LABEL, pv.SKU, pv.VARIANT_PRICE, pv.SALE_PRICE, pv.VARIANT_STOCK
             FROM cart_item ci
+            INNER JOIN cart c ON ci.CART_ID = c.CART_ID
             LEFT JOIN product p ON ci.PRODUCT_ID = p.PRODUCT_ID
             LEFT JOIN product_variant pv ON ci.VARIANT_ID = pv.VARIANT_ID
-            WHERE ci.CART_ITEM_ID IN ($ids_string)";
+            WHERE ci.CART_ITEM_ID IN ($ids_string)
+              AND c.CUSTOMER_ID = $customer_id";
 
     $result = mysqli_query($conn, $sql);
 
-    while ($row = mysqli_fetch_assoc($result)) {
-        $qty = intval($row['QUANTITY']);
-        $row['is_custom']        = false;
-        $row['final_unit_price'] = floatval($row['VARIANT_PRICE']);
+    if ($result) {
+        while ($row = mysqli_fetch_assoc($result)) {
+            $qty = intval($row['QUANTITY']);
 
-        // Fetch add-ons associated with specific cart items
-        $addon_sql    = "SELECT cia.*, ao.ADD_ON_NAME, ao.ADD_ON_PRICE
-                         FROM cart_item_addon cia
-                         JOIN add_on ao ON cia.ADD_ON_ID = ao.ADD_ON_ID
-                         WHERE cia.CART_ITEM_ID = " . intval($row['CART_ITEM_ID']);
-        $addon_result = mysqli_query($conn, $addon_sql);
+            $unit_price = (!empty($row['SALE_PRICE']) && floatval($row['SALE_PRICE']) > 0)
+                          ? floatval($row['SALE_PRICE'])
+                          : floatval($row['VARIANT_PRICE']);
+            $row['final_unit_price'] = $unit_price;
 
-        $row['addons']  = [];
-        $addon_total_for_item = 0;
+            $addon_sql = "SELECT cia.CART_ITEM_ADDON_ID, cia.QUANTITY AS ADDON_QTY,
+                                 pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE AS OVERRIDE_PRICE,
+                                 ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME,
+                                 apv.VARIANT_LABEL AS ADDON_VARIANT_LABEL,
+                                 apv.VARIANT_PRICE AS ADDON_VARIANT_PRICE,
+                                 apv.SALE_PRICE AS ADDON_VARIANT_SALE_PRICE
+                          FROM cart_item_addon cia
+                          JOIN product_addon pa ON cia.PRODUCT_ADD_ON_ID = pa.PRODUCT_ADDON_ID
+                          JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
+                          LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
+                          WHERE cia.CART_ITEM_ID = " . intval($row['CART_ITEM_ID']);
+            $addon_result = mysqli_query($conn, $addon_sql);
 
-        while ($addon = mysqli_fetch_assoc($addon_result)) {
-            $row['addons'][]       = $addon;
-            $addon_total_for_item += floatval($addon['ADD_ON_PRICE']) * intval($addon['QUANTITY']);
+            $row['addons']        = [];
+            $addon_total_for_item = 0;
+
+            if ($addon_result) {
+                while ($addon = mysqli_fetch_assoc($addon_result)) {
+                    if ($addon['OVERRIDE_PRICE'] !== null) {
+                        $addon_unit_price = floatval($addon['OVERRIDE_PRICE']);
+                    } elseif (!empty($addon['ADDON_VARIANT_SALE_PRICE']) && floatval($addon['ADDON_VARIANT_SALE_PRICE']) > 0) {
+                        $addon_unit_price = floatval($addon['ADDON_VARIANT_SALE_PRICE']);
+                    } else {
+                        $addon_unit_price = floatval($addon['ADDON_VARIANT_PRICE'] ?? 0);
+                    }
+
+                    $addon['UNIT_PRICE']   = $addon_unit_price;
+                    $addon_total_for_item += $addon_unit_price * intval($addon['ADDON_QTY']);
+                    $row['addons'][]       = $addon;
+                }
+            }
+
+            $row['SINGLE_SET_PRICE'] = $unit_price + $addon_total_for_item;
+            $SUB_TOTAL               += $row['SINGLE_SET_PRICE'] * $qty;
+
+            $cart_items[] = $row;
         }
-
-        $row['SINGLE_SET_PRICE'] = $row['final_unit_price'] + $addon_total_for_item;
-        $SUB_TOTAL              += $row['SINGLE_SET_PRICE'] * $qty;
-
-        $cart_items[] = $row;
     }
 }
-
-// 6B. custom cake items
-$is_custom_locked   = false;
-$locked_delivery_date = '';
-$locked_delivery_slot = '';
-
-if (!empty($custom_ids)) {
-
-    $is_custom_locked = true;
-    $c_ids_string     = implode(',', array_map('intval', $custom_ids));
-
-    $c_sql    = "SELECT * FROM custom
-                 WHERE CUSTOM_ID IN ($c_ids_string)
-                   AND CUSTOMER_ID = $customer_id
-                   AND IS_DELETED  = 0";
-    $c_result = mysqli_query($conn, $c_sql);
-
-    $first_custom = true;
-    while ($row = mysqli_fetch_assoc($c_result)) {
-
-        $qty   = intval($row['QUANTITY']);
-        $price = floatval($row['QUOTED_PRICE']); // total price, no multiply
-
-        $SUB_TOTAL            += $price;
-        $capacity_cakes_count += $qty;
-
-        // Sync delivery slot times from custom records
-        if ($first_custom) {
-           $locked_delivery_date = $row['DELIVERY_DATE'];
-
-           $delivery_slot_str  = $row['DELIVERY_SLOT']; // "2:00 PM - 4:00 PM"
-           $matched_start_time = '';
-           $custom_start       = trim(explode(' - ', $delivery_slot_str)[0] ?? '');
-           $custom_start_ts    = strtotime($custom_start);
-
-           $all_slots_q = mysqli_query($conn, "SELECT SLOT_ID, START_TIME FROM delivery_slots WHERE STATUS = 'Active'");
-           while ($sr = mysqli_fetch_assoc($all_slots_q)) {
-               if (strtotime($sr['START_TIME']) === $custom_start_ts) {
-               $matched_start_time = $sr['START_TIME'];
-               break;
-              }
-           }
-
-           $locked_delivery_slot = $matched_start_time ?: '';
-           $first_custom = false;
-        }
-
-        // Format custom cake item for checkout
-        $cart_items[] = [
-            'is_custom'        => true,
-            'CART_ITEM_ID'     => 'custom_' . $row['CUSTOM_ID'],
-            'CUSTOM_ID'        => $row['CUSTOM_ID'],
-            'PRODUCT_NAME'     => $row['STYLE_NAME_SNAPSHOT'],
-            'COVER_IMAGE'      => $row['REF_IMAGE'],
-            'final_unit_price' => $price,
-            'SINGLE_SET_PRICE' => $price,
-            'QUANTITY'         => $qty,
-            'VARIANT_SIZE'     => $row['SIZE'],
-            'IDEAL_FLAVOUR'    => $row['IDEAL_FLAVOUR'],
-            'CUSTOM_DES'       => $row['CUSTOM_DES'],
-            'addons'           => [],
-            'CAKE_WRITING'     => '',
-        ];
-    }
+if (empty($cart_items)) {
+    header("Location: shopping_cart.php");
+    exit;
 }
-
-
 // 7. Check available vouchers
 $customer_tier_id = 0;
 $tier_q = mysqli_query($conn, "SELECT TIER_ID FROM customer WHERE CUSTOMER_ID = $customer_id");
@@ -274,7 +262,8 @@ if ($voucher_result) {
             $cv_expiry = new DateTime($v_row['CUSTOMER_EXPIRY']);
             if ($today > $cv_expiry) continue;
         }
-         // Check global/user usage limits
+
+        // Check global/user usage limits
         if ($v_row['MAX_USAGE'] != -1 && $v_row['GLOBAL_USED_COUNT'] >= $v_row['MAX_USAGE']) continue;
 
         $customer_used = intval($v_row['CUSTOMER_USED_COUNT'] ?? 0);
@@ -286,8 +275,7 @@ if ($voucher_result) {
     }
 }
 
-
-// 8. Calculate discount and final total 
+// 8. Calculate discount and final total
 $DISCOUNT_AMOUNT = 0.00;
 
 if ($passed_voucher_id > 0) {
@@ -310,8 +298,8 @@ $TOTAL_AMOUNT = $SUB_TOTAL - $DISCOUNT_AMOUNT + $SHIPPING_FEE;
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=6.0">
-    <link rel="stylesheet" href="css/footer.css?v=6.0">
+    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
     <style>
@@ -526,6 +514,10 @@ $TOTAL_AMOUNT = $SUB_TOTAL - $DISCOUNT_AMOUNT + $SHIPPING_FEE;
         font-size: 14px;
         color: var(--font2-color);
         font-family: 'Inter', sans-serif;
+    }
+
+    .method-label span i {
+        margin-left:10px;
     }
 
     .method-label img {
@@ -893,9 +885,7 @@ $TOTAL_AMOUNT = $SUB_TOTAL - $DISCOUNT_AMOUNT + $SHIPPING_FEE;
             <input type="hidden" name="selected_items[]" value="<?php echo intval($id); ?>">
         <?php endforeach; ?>
 
-        <?php foreach ($custom_ids as $cid): ?>
-            <input type="hidden" name="custom_ids[]" value="<?php echo intval($cid); ?>">
-        <?php endforeach; ?>
+
 
         <input type="hidden" name="address_id" value="<?php echo $address_id; ?>">
         <input type="hidden" name="delivery_date" value="<?php echo htmlspecialchars($delivery_date); ?>">
@@ -951,8 +941,8 @@ $TOTAL_AMOUNT = $SUB_TOTAL - $DISCOUNT_AMOUNT + $SHIPPING_FEE;
             <!-- Option 2: Credit / Debit Card -->
             <div class="method-group">
                 <label class="method-label">
-                    <span>Credit or Debit Card</span>
-                    <img src="icon/card.jpeg" alt="card">
+                    <span>Credit or Debit Card <i class="bi bi-credit-card-fill"></i></span>
+                    
                     <input type="radio" name="payment_method" value="Card">
                 </label>
 
@@ -984,7 +974,7 @@ $TOTAL_AMOUNT = $SUB_TOTAL - $DISCOUNT_AMOUNT + $SHIPPING_FEE;
             <div class="method-group">
                 <label class="method-label">
                     <span>FPX</span>
-                    <img src="icon/fpx.png" alt="fpx">
+                    <img src="image/logo/fpx.png" alt="fpx">
                     <input type="radio" name="payment_method" value="FPX">
                 </label>
             </div>
@@ -1000,17 +990,17 @@ $TOTAL_AMOUNT = $SUB_TOTAL - $DISCOUNT_AMOUNT + $SHIPPING_FEE;
                 <div id="ewallet" class="details-box">
                     <label>
                         <input type="radio" name="ewallet_provider" value="Touch n Go">
-                        <img src="icon/tng.png" alt="Touch n Go">
+                        <img src="image/logo/tng.png" alt="Touch n Go">
                         Touch'n Go
                     </label>
                     <label>
                         <input type="radio" name="ewallet_provider" value="Shopee Pay">
-                        <img src="icon/shopee.png" alt="Shopee Pay">
+                        <img src="image/logo/shopee.png" alt="Shopee Pay">
                         Shopee Pay
                     </label>
                     <label>
                         <input type="radio" name="ewallet_provider" value="Boost">
-                        <img src="icon/boost.png" alt="Boost">
+                        <img src="image/logo/boost.png" alt="Boost">
                         Boost
                     </label>
                 </div>
@@ -1025,81 +1015,46 @@ $TOTAL_AMOUNT = $SUB_TOTAL - $DISCOUNT_AMOUNT + $SHIPPING_FEE;
             <hr>
 
             <?php foreach ($cart_items as $index => $item): ?>
-            <div class="cake-details">
+                <div class="cake-details">
 
-                <input type="hidden" name="cart_items[<?php echo $index; ?>][cart_item_id]"
-                       value="<?php echo htmlspecialchars($item['CART_ITEM_ID']); ?>">
-                <input type="hidden" name="cart_items[<?php echo $index; ?>][custom_id]"
-                       value="<?php echo isset($item['CUSTOM_ID']) ? intval($item['CUSTOM_ID']) : 0; ?>">
+                    <input type="hidden" name="cart_items[<?php echo $index; ?>][cart_item_id]"
+                        value="<?php echo htmlspecialchars($item['CART_ITEM_ID']); ?>">
 
-                <div class="cake-image">
-                    <img src="<?php echo !empty($item['COVER_IMAGE']) ? htmlspecialchars($item['COVER_IMAGE']) : 'icon/default_cake.png'; ?>" alt="cake">
-                </div>
+                    <div class="cake-image">
+                        <img src="<?php echo !empty($item['COVER_IMAGE']) ? htmlspecialchars($item['COVER_IMAGE']) : 'icon/default_cake.png'; ?>" alt="product">
+                    </div>
 
-                <div class="cake-text">
-                    <?php if ($item['is_custom']): ?>
-                        <span class="custom-badge">✦ Custom Cake</span>
-                    <?php endif; ?>
+                    <div class="cake-text">
+                        <p><strong><?php echo htmlspecialchars($item['PRODUCT_NAME'] ?? 'Product'); ?></strong></p>
 
-                    <p><strong><?php echo htmlspecialchars($item['PRODUCT_NAME'] ?? 'Custom Cake'); ?></strong></p>
+                        <p class="size-qty">
+                            <?php if (!empty($item['VARIANT_LABEL'])): ?>
+                                <small><?php echo htmlspecialchars($item['VARIANT_LABEL']); ?></small>
+                                &nbsp;|&nbsp;
+                            <?php endif; ?>
+                            <small>Qty: <?php echo intval($item['QUANTITY']); ?></small>
+                        </p>
 
-                    <p class="size-qty">
-                        <small>Size: <?php echo htmlspecialchars($item['VARIANT_SIZE'] ?? 'N/A'); ?></small>
-                        &nbsp;|&nbsp;
-                        <small>Qty: <?php echo intval($item['QUANTITY']); ?></small>
-                    </p>
-
-                    <p class="unit-price">
-                        <small>Unit Price: RM <?php echo number_format($item['final_unit_price'], 2); ?></small>
-                    </p>
-
-                    <?php if ($item['is_custom']): ?>
-                        <?php if (!empty($item['IDEAL_FLAVOUR'])): ?>
-                            <p><small class="text-muted">
-                                <i class="bi bi-cake2"></i>
-                                Flavour: <?php echo htmlspecialchars($item['IDEAL_FLAVOUR']); ?>
-                            </small></p>
-                        <?php endif; ?>
-
-                        <?php if (!empty($item['CUSTOM_DES'])): ?>
-                            <p><small class="text-muted">
-                                <i class="bi bi-chat-left-text"></i>
-                                Note: <?php echo htmlspecialchars($item['CUSTOM_DES']); ?>
-                            </small></p>
-                        <?php endif; ?>
-
-                    <?php else: ?>
-                        <?php if (!empty($item['CAKE_WRITING'])): ?>
-                            <p><small class="text-muted">
-                                <i class="bi bi-pen"></i>
-                                Writing: "<?php echo htmlspecialchars($item['CAKE_WRITING']); ?>"
-                            </small></p>
-                        <?php endif; ?>
+                        <p class="unit-price">
+                            <small>Unit Price: RM <?php echo number_format($item['final_unit_price'], 2); ?></small>
+                        </p>
 
                         <?php if (!empty($item['addons'])): ?>
                             <div class="addon-box">
                                 <strong>Add-ons:</strong>
                                 <?php foreach ($item['addons'] as $addon): ?>
                                     <div>
-                                        • <?php echo htmlspecialchars($addon['ADD_ON_NAME']); ?>
-                                        (RM<?php echo number_format($addon['ADD_ON_PRICE'], 2); ?>
-                                        x <?php echo intval($addon['QUANTITY']); ?>)
-
-                                        <?php if (!empty($addon['CARD_TEXT'])): ?>
-                                            <br>
-                                            <span style="color: #888;">
-                                                Card: "<?php echo htmlspecialchars($addon['CARD_TEXT']); ?>"
-                                            </span>
-                                        <?php endif; ?>
+                                        • <?php echo htmlspecialchars($addon['ADDON_PRODUCT_NAME']); ?><?php echo !empty($addon['ADDON_VARIANT_LABEL']) ? ' (' . htmlspecialchars($addon['ADDON_VARIANT_LABEL']) . ')' : ''; ?>
+                                        (RM<?php echo number_format($addon['UNIT_PRICE'], 2); ?>
+                                        x <?php echo intval($addon['ADDON_QTY']); ?>)
                                     </div>
                                 <?php endforeach; ?>
                             </div>
                         <?php endif; ?>
-                    <?php endif; ?>
+                    </div>
                 </div>
-            </div>
-            <hr>
-            <?php endforeach; ?>
+                <hr>
+                <?php endforeach; ?>
 
             <!-- Voucher -->
             <div class="mb-3">

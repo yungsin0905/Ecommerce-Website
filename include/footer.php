@@ -26,7 +26,7 @@ $full_addr_str = implode(', ', $full_addr);
           <p><?php echo htmlspecialchars($bakery_info['BAKERY_DES']); ?></p>
         </div>
       <div class="footer-col links">
-        <h4>Cake</h4>
+        <h4>Categories</h4>
         <ul>
           <?php while ($cat = $category_result->fetch_assoc()): ?>
             <li>
@@ -44,7 +44,6 @@ $full_addr_str = implode(', ', $full_addr);
           <li><a href="UserDashboard.php">My Profile</a></li>
           <li><a href="membership.php">Membership</a></li>
           <li><a href="Wishlist.php">Wishlist</a></li>
-          <li><a href="Customise.php">Customise</a></li>
           <li><a href="voucher.php">Voucher</a></li>
         </ul>
       </div>
@@ -54,11 +53,6 @@ $full_addr_str = implode(', ', $full_addr);
           <li><?php echo htmlspecialchars($full_addr_str); ?></li>
           <li><?php echo htmlspecialchars($bakery_info['EMAIL']); ?></li>
           <li><?php echo htmlspecialchars($bakery_info['PHONE']); ?></li>
-          <li>Operating Hours: <?php 
-          $formatted_days = str_replace('Mon,Tue,Wed,Thu,Fri', 'Mon - Fri', $bakery_info['OPEN_DAYS']);
-          echo htmlspecialchars($formatted_days . ' ' . date('g:i A', strtotime($bakery_info['OPEN_TIME'])) . ' - ' . date('g:i A', strtotime($bakery_info['CLOSE_TIME'])));
-          ?>
-          </li>
         </ul>
       </div>
     </div>

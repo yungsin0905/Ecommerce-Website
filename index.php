@@ -1,6 +1,28 @@
 <?php 
 include 'include/config.php';
 session_start();
+
+if (!function_exists('getCategoryIcon')) {
+    function getCategoryIcon($cat_name) {
+        $name = strtolower($cat_name);
+        if (strpos($name, 'main board') !== false || strpos($name, 'microcontroller') !== false) {
+            return 'bi-cpu';
+        } elseif (strpos($name, 'kit') !== false || strpos($name, 'bundle') !== false) {
+            return 'bi-box-seam';
+        } elseif (strpos($name, 'expansion') !== false || strpos($name, 'shield') !== false) {
+            return 'bi-motherboard';
+        } elseif (strpos($name, 'power') !== false || strpos($name, 'wire') !== false || strpos($name, 'cable') !== false || strpos($name, 'battery') !== false) {
+            return 'bi-lightning-charge';
+        } elseif (strpos($name, 'accessori') !== false || strpos($name, 'part') !== false || strpos($name, 'tool') !== false) {
+            return 'bi-tools';
+        } elseif (strpos($name, 'robot') !== false || strpos($name, 'car') !== false) {
+            return 'bi-robot';
+        } elseif (strpos($name, 'sensor') !== false) {
+            return 'bi-broadcast-pin';
+        }
+        return 'bi-grid-fill';
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -12,8 +34,8 @@ session_start();
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=6.0">
-    <link rel="stylesheet" href="css/footer.css?v=6.0">
+    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
       :root
@@ -293,6 +315,35 @@ session_start();
         object-fit: cover;
       }
 
+      .cake-img-wrap {
+          position: relative;
+      }
+      .badge-best-seller,
+      .badge-discount {
+          position: absolute;
+          top: 8px;
+          left: 8px;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 4px 8px;
+          border-radius: 4px;
+          color: #fff;
+          z-index: 2;
+      }
+      .badge-best-seller {
+          background-color: #f5a623;
+      }
+      .badge-discount {
+          background-color: #3c8cb1;
+      }
+      .original-price {
+          text-decoration: line-through;
+          color: #999;
+          font-size: 12px;
+          font-weight: normal;
+          margin-left: 6px;
+      }
+
       .cake-name{
         color:var(--font2-color);
         font-weight:bold;
@@ -356,74 +407,107 @@ session_start();
       }
 
       /* categories */
-      .more-categories {
-        margin: 0;
+      .more-categories-section {
+        background-color: var(--bg-color);
       }
- 
-      .more-categories h2 {
-        text-align: left;
-      }
- 
-      .categories {
-        display: flex;
-        justify-content: flex-start;
-        gap: 25px;
+
+      .categories-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 20px;
         padding: 10px 80px 20px;
-        flex-wrap: wrap;
         max-width: 1400px;
         margin: 0 auto;
       }
- 
-      .cat-item {
-        text-align: center;
-        width: 160px;
-        background: #fff;
-        border: 1px solid var(--search-border-color);
-        border-radius: 10px;
-        padding: 15px 12px;
-        transition: var(--transition);
-      }
- 
-      .cat-item:hover {
-        transform: translateY(-6px);
-        box-shadow: 0 15px 30px rgba(27, 42, 60, 0.1);
-        border-color: var(--main-color);
-      }
- 
-      .cat-item img {
-        width: 100%;
-        height: 100px;
-        border-radius: 8px;
-        object-fit: cover;
-        margin-bottom: 12px;
-        background-color: var(--secondary-color);
-        transition: var(--transition);
-      }
- 
-      .categories span {
-        font-weight: 700;
+
+      .category-card {
+        background: #ffffff;
+        border: 1.5px solid var(--border-subtle);
+        border-radius: 14px;
+        padding: 18px 20px;
+        text-decoration: none;
         color: var(--font-color);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        transition: var(--transition);
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(27, 42, 60, 0.03);
+      }
+
+      .category-card:hover {
+        transform: translateY(-4px);
+        border-color: var(--main-color);
+        box-shadow: 0 12px 26px rgba(60, 140, 177, 0.14);
+        background: linear-gradient(135deg, #ffffff 0%, #f4f9fd 100%);
+        color: var(--font-color);
+      }
+
+      .category-icon-wrap {
+        width: 50px;
+        height: 50px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #EBF4FC 0%, #DCEEFB 100%);
+        color: var(--main-dark);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        flex-shrink: 0;
+        transition: var(--transition);
+      }
+
+      .category-card:hover .category-icon-wrap {
+        background: linear-gradient(135deg, var(--main-color) 0%, var(--main-dark) 100%);
+        color: #ffffff;
+        transform: scale(1.08) rotate(3deg);
+      }
+
+      .category-info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .category-name {
         font-family: 'Poppins', sans-serif;
-        font-size: 13px;
+        font-weight: 700;
+        font-size: 14.5px;
+        color: var(--font-color);
+        margin: 0 0 3px 0;
+        line-height: 1.35;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
-        min-height: 34px;
-      }
- 
-      .categories a {
-        text-decoration: none;
-        color: var(--font-color);
         transition: var(--transition);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
       }
- 
-      .categories a:hover span {
-        color: var(--main-color);
-        text-decoration: underline;
+
+      .category-card:hover .category-name {
+        color: var(--main-dark);
+      }
+
+      .category-count {
+        font-size: 12px;
+        color: var(--font2-color);
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .category-arrow {
+        color: var(--font2-color);
+        opacity: 0.4;
+        font-size: 14px;
+        transition: var(--transition);
+        flex-shrink: 0;
+      }
+
+      .category-card:hover .category-arrow {
+        opacity: 1;
+        color: var(--main-dark);
+        transform: translateX(4px);
       }
 
       .text-center {
@@ -575,25 +659,245 @@ session_start();
         color: #FFFFFF !important;
       }
 
-      @media (max-width: 992px) {
+      /* Media Queries for Split-Screen, Tablet, and Mobile Responsiveness */
+
+      /* Split Screen & Desktop (992px - 1199px) */
+      @media (max-width: 1199px) {
         .hero-section {
-          padding: 50px 24px 75px;
+          padding: 50px 50px 75px;
+          min-height: 380px;
+        }
+        .container h1 {
+          font-size: 38px;
+        }
+        .section-header,
+        .slider-wrapper,
+        .categories-grid,
+        .perks-grid {
+          padding-left: 50px;
+          padding-right: 50px;
+        }
+        .prev-btn { left: 10px; width: 44px; height: 44px; }
+        .next-btn { right: 10px; width: 44px; height: 44px; }
+        .cake-item {
+          flex: 0 0 calc(25% - 15px);
+          min-width: 190px;
+        }
+        .categories-grid {
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        }
+      }
+
+      /* Tablet & Medium Split Screen (768px - 991px) */
+      @media (max-width: 991px) {
+        .hero-section {
+          padding: 45px 32px 65px;
+          min-height: 340px;
+        }
+        .container h1 {
+          font-size: 32px;
+        }
+        .container p {
+          font-size: 15px;
+          margin-bottom: 24px;
         }
         .content-section {
-          padding: 40px 0 45px;
+          padding: 38px 0 42px;
         }
-        .section-header {
-          padding: 0 24px;
+        .section-header,
+        .slider-wrapper,
+        .categories-grid,
+        .perks-grid {
+          padding-left: 32px;
+          padding-right: 32px;
         }
-        .slider-wrapper {
-          padding: 0 24px;
+        .section-title {
+          font-size: 22px;
+          margin-bottom: 20px;
         }
-        .categories {
-          padding: 10px 24px 20px;
+        .prev-btn { left: 6px; width: 38px; height: 38px; font-size: 14px; }
+        .next-btn { right: 6px; width: 38px; height: 38px; font-size: 14px; }
+        .cake-item {
+          flex: 0 0 calc(33.333% - 14px);
+          min-width: 175px;
+        }
+        .cake-item img {
+          height: 180px;
+        }
+        .categories-grid {
+          grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+          gap: 14px;
+        }
+        .category-card {
+          padding: 14px;
+          gap: 12px;
+        }
+        .category-icon-wrap {
+          width: 42px;
+          height: 42px;
+          font-size: 18px;
+        }
+        .category-name {
+          font-size: 13.5px;
         }
         .perks-grid {
           grid-template-columns: 1fr;
-          padding: 10px 24px 20px;
+          gap: 20px;
+        }
+      }
+
+      /* Mobile Phone View (< 768px) */
+      @media (max-width: 767px) {
+        .hero-section {
+          padding: 35px 20px 55px;
+          min-height: auto;
+          text-align: center;
+          justify-content: center;
+        }
+        .container {
+          max-width: 100%;
+          text-align: center;
+          margin: 0 auto;
+        }
+        .hero-eyebrow {
+          font-size: 11px;
+          letter-spacing: 1px;
+          margin-bottom: 8px;
+        }
+        .container h1 {
+          font-size: 26px;
+          margin-bottom: 12px;
+          line-height: 1.3;
+        }
+        .container p {
+          font-size: 14px;
+          margin-bottom: 20px;
+          line-height: 1.5;
+        }
+        .learn-btn a {
+          padding: 10px 24px;
+          font-size: 14px;
+        }
+        .content-section {
+          padding: 30px 0 35px;
+        }
+        .section-header {
+          padding: 0 16px;
+          margin-bottom: 14px;
+        }
+        .section-title {
+          font-size: 19px;
+          margin-bottom: 0;
+        }
+        .section-title::after {
+          bottom: -5px;
+          width: 36px;
+          height: 2.5px;
+        }
+        .view-all-btn {
+          font-size: 13px;
+        }
+        .slider-wrapper {
+          padding: 0 16px;
+        }
+        .slide-arrow {
+          display: none !important;
+        }
+        .cake-grid {
+          gap: 12px;
+          padding: 10px 2px 14px;
+        }
+        .cake-item {
+          flex: 0 0 155px;
+          min-width: 155px;
+          border-radius: 8px;
+        }
+        .cake-item img {
+          height: 150px;
+          border-radius: 8px 8px 0 0;
+        }
+        .cake-name {
+          font-size: 12px;
+          margin: 8px 6px 6px;
+        }
+        .stars {
+          font-size: 11px;
+          margin: 0 6px 8px;
+        }
+        .price {
+          font-size: 13px;
+          margin-left: 4px;
+        }
+        .badge-best-seller,
+        .badge-discount {
+          font-size: 9px;
+          padding: 2px 6px;
+        }
+        .categories-grid {
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+          padding: 10px 16px 20px;
+        }
+        .category-card {
+          padding: 12px 10px;
+          gap: 10px;
+          border-radius: 10px;
+        }
+        .category-icon-wrap {
+          width: 36px;
+          height: 36px;
+          font-size: 16px;
+          border-radius: 8px;
+        }
+        .category-name {
+          font-size: 12.5px;
+        }
+        .category-count {
+          font-size: 11px;
+        }
+        .perks-section {
+          padding: 35px 0 45px;
+        }
+        .perks-grid {
+          grid-template-columns: 1fr;
+          padding: 10px 16px 20px;
+          gap: 16px;
+        }
+        .perk-card {
+          padding: 20px 18px;
+          border-radius: 10px;
+        }
+        .perk-title {
+          font-size: 17px;
+        }
+        .perk-desc {
+          font-size: 12.5px;
+          margin-bottom: 14px;
+        }
+        .perk-features li {
+          font-size: 12px;
+        }
+        .perk-btn {
+          padding: 9px 18px;
+          font-size: 13px;
+          width: 100%;
+          text-align: center;
+          justify-content: center;
+        }
+      }
+
+      /* Extra Small Phone (< 400px) */
+      @media (max-width: 399px) {
+        .cake-item {
+          flex: 0 0 140px;
+          min-width: 140px;
+        }
+        .cake-item img {
+          height: 135px;
+        }
+        .categories-grid {
+          grid-template-columns: repeat(2, 1fr);
+          gap: 8px;
         }
       }
 
@@ -632,9 +936,19 @@ session_start();
             <div class="cake-grid" id="productSlider1">
                 <?php 
                 //retrieve sql
-                $sql =  "SELECT p.*, MIN(v.VARIANT_PRICE) as MIN_PRICE FROM product p
+                $sql =  "SELECT p.*, MIN(v.VARIANT_PRICE) as MIN_PRICE, COUNT(v.VARIANT_ID) as VARIANT_COUNT,
+                        (SELECT COALESCE(NULLIF(v2.SALE_PRICE,0), v2.VARIANT_PRICE)
+                        FROM product_variant v2
+                        WHERE v2.PRODUCT_ID = p.PRODUCT_ID AND v2.IS_DELETED = 0 AND v2.VARIANT_STATUS = 'Active'
+                        ORDER BY COALESCE(NULLIF(v2.SALE_PRICE,0), v2.VARIANT_PRICE) ASC LIMIT 1) as DISPLAY_MIN_PRICE,
+                        (SELECT v2.VARIANT_PRICE
+                        FROM product_variant v2
+                        WHERE v2.PRODUCT_ID = p.PRODUCT_ID AND v2.IS_DELETED = 0 AND v2.VARIANT_STATUS = 'Active'
+                        ORDER BY COALESCE(NULLIF(v2.SALE_PRICE,0), v2.VARIANT_PRICE) ASC LIMIT 1) as ORIGINAL_PRICE_OF_MIN
+                        FROM product p
                         LEFT JOIN product_variant v ON p.PRODUCT_ID = v.PRODUCT_ID
-                        INNER JOIN category c ON c.CATEGORY_ID = p.CATEGORY_ID
+                        LEFT JOIN product_category pc ON p.PRODUCT_ID = pc.PRODUCT_ID
+                        LEFT JOIN category c ON pc.CATEGORY_ID = c.CATEGORY_ID
                         WHERE p.PRODUCT_STATUS = 'Active' 
                         AND p.IS_DELETED = 0
                         AND p.SALES_COUNT >= 50
@@ -650,7 +964,6 @@ session_start();
                         GROUP BY p.PRODUCT_ID 
                         ORDER BY p.SALES_COUNT DESC
                         LIMIT 10";
-
                 $result = $conn->query($sql);
 
                 if ($result && $result->num_rows > 0) {
@@ -706,48 +1019,74 @@ session_start();
         <div class="slider-wrapper">
           <div class="cake-grid" id="productSlider2">
               <?php
-              $sql_rec = "SELECT p.*, MIN(v.VARIANT_PRICE) as MIN_PRICE
-                        FROM product p
-                        LEFT JOIN product_variant v ON p.PRODUCT_ID = v.PRODUCT_ID
-                        INNER JOIN category c ON c.CATEGORY_ID = p.CATEGORY_ID
-                        WHERE p.PRODUCT_STATUS = 'Active'
-                        AND p.IS_DELETED = 0
-                        AND p.AVG_RATING >= 4.5 
-                        AND c.CATEGORY_STATUS = 'Active'
-                        AND c.IS_DELETED = 0
-                        AND EXISTS (
-                            SELECT 1 FROM product_variant
-                            WHERE PRODUCT_ID = p.PRODUCT_ID 
-                            AND IS_DELETED = 0
-                            AND VARIANT_STATUS = 'Active'
-                            AND VARIANT_STOCK > 0
-                        )
-                        GROUP BY p.PRODUCT_ID 
-                        ORDER BY p.AVG_RATING DESC, p.SALES_COUNT DESC
-                        LIMIT 10";
+              $sql_rec = "SELECT p.*, MIN(v.VARIANT_PRICE) as MIN_PRICE, COUNT(v.VARIANT_ID) as VARIANT_COUNT,
+                (SELECT COALESCE(NULLIF(v2.SALE_PRICE,0), v2.VARIANT_PRICE)
+                FROM product_variant v2
+                WHERE v2.PRODUCT_ID = p.PRODUCT_ID AND v2.IS_DELETED = 0 AND v2.VARIANT_STATUS = 'Active'
+                ORDER BY COALESCE(NULLIF(v2.SALE_PRICE,0), v2.VARIANT_PRICE) ASC LIMIT 1) as DISPLAY_MIN_PRICE,
+                (SELECT v2.VARIANT_PRICE
+                FROM product_variant v2
+                WHERE v2.PRODUCT_ID = p.PRODUCT_ID AND v2.IS_DELETED = 0 AND v2.VARIANT_STATUS = 'Active'
+                ORDER BY COALESCE(NULLIF(v2.SALE_PRICE,0), v2.VARIANT_PRICE) ASC LIMIT 1) as ORIGINAL_PRICE_OF_MIN
+                FROM product p
+                LEFT JOIN product_variant v ON p.PRODUCT_ID = v.PRODUCT_ID
+                LEFT JOIN product_category pc ON p.PRODUCT_ID = pc.PRODUCT_ID
+                LEFT JOIN category c ON pc.CATEGORY_ID = c.CATEGORY_ID
+                WHERE p.PRODUCT_STATUS = 'Active'
+                AND p.IS_DELETED = 0
+                AND p.AVG_RATING >= 4.5 
+                AND c.CATEGORY_STATUS = 'Active'
+                AND c.IS_DELETED = 0
+                AND EXISTS (
+                    SELECT 1 FROM product_variant
+                    WHERE PRODUCT_ID = p.PRODUCT_ID 
+                    AND IS_DELETED = 0
+                    AND VARIANT_STATUS = 'Active'
+                    AND VARIANT_STOCK > 0
+                )
+                GROUP BY p.PRODUCT_ID 
+                ORDER BY p.AVG_RATING DESC, p.SALES_COUNT DESC
+                LIMIT 10";
 
               $result_rec = $conn->query($sql_rec);
 
               if ($result_rec && $result_rec->num_rows > 0) {
                 while ($row = $result_rec->fetch_assoc()) {
+                  $display_price = $row['DISPLAY_MIN_PRICE'];
+                  $original_price = $row['ORIGINAL_PRICE_OF_MIN'];
+                  $has_discount = ($original_price > $display_price);
+                  $discount_percent = $has_discount ? round((($original_price - $display_price) / $original_price) * 100) : 0;
+                  $is_best_seller = ($row['SALES_COUNT'] >= 50);
                     ?>
                     <div class="cake-item">
-                        <img src="admin/<?php echo $row['COVER_IMAGE']; ?>" alt="<?php echo htmlspecialchars($row['PRODUCT_NAME']); ?>">
-                        <p class="cake-name">
-                            <a href="product details.php?id=<?php echo $row['PRODUCT_ID']; ?>">
-                                <?php echo htmlspecialchars($row['PRODUCT_NAME']); ?>
-                            </a>
-                        </p>
-                        <div class="stars">
-                            <?php
-                            $rating = round($row['AVG_RATING']);
-                            for ($i = 1; $i <= 5; $i++) {
-                                echo ($i <= $rating) ? '<i class="bi bi-star-fill"></i>' : '<i class="bi bi-star"></i>';
-                            }
-                            ?>
-                            <span class="ms-1">(<?php echo number_format($row['AVG_RATING'], 1); ?>)</span>
-                            <p class="price">RM <?php echo number_format($row['MIN_PRICE'], 2); ?></p>
-                        </div>
+                      <div class="cake-img-wrap">
+                          <img src="admin/<?php echo $row['COVER_IMAGE'];?>" alt="<?php echo htmlspecialchars($row['PRODUCT_NAME']);?>">
+                          <?php if ($is_best_seller): ?>
+                              <span class="badge-best-seller">BEST SELLER</span>
+                          <?php elseif ($has_discount): ?>
+                              <span class="badge-discount">-<?php echo $discount_percent; ?>%</span>
+                          <?php endif; ?>
+                      </div>
+                      <p class="cake-name">
+                          <a href="product details.php?id=<?php echo $row['PRODUCT_ID']; ?>">
+                              <?php echo htmlspecialchars($row['PRODUCT_NAME']);?>
+                          </a>
+                      </p>
+                      <div class="stars">
+                          <?php
+                              $rating = round($row['AVG_RATING']);
+                              for ($i=1; $i<=5; $i++) {
+                                  echo ($i <= $rating) ? '<i class="bi bi-star-fill"></i>' : '<i class="bi bi-star"></i>';
+                              }
+                          ?>
+                          <span class="ms-1">(<?php echo number_format($row['AVG_RATING'], 1); ?>)</span>
+                          <p class="price">
+                              RM <?php echo number_format($display_price, 2);?>
+                              <?php if ($has_discount): ?>
+                                  <span class="original-price">RM <?php echo number_format($original_price, 2); ?></span>
+                              <?php endif; ?>
+                          </p>
+                      </div>
                     </div>
                     <?php
                 }
@@ -768,25 +1107,47 @@ session_start();
         <!-- more categories -->
         <div class="content-section more-categories-section">
           <div class="section-header">
-            <h2 class="section-title">More Categories</h2>
+            <h2 class="section-title">Explore Categories</h2>
           </div>
-          <div class="categories">
+          <div class="categories-grid">
             <?php 
-            // Retrieve all active categories
-            $cat_sql = "SELECT * FROM category WHERE CATEGORY_STATUS = 'Active' AND IS_DELETED = 0";
-            $cat_result = $conn->query($cat_sql);
-    
-            if ($cat_result && $cat_result->num_rows > 0) {
-              while ($cat_row = $cat_result->fetch_assoc()) { ?>
-                <div class="cat-item">
-                  <a href="product catalogue.php?id=<?php echo htmlspecialchars($cat_row['CATEGORY_ID']); ?>">
-                    <img src="admin/<?php echo $cat_row['CATEGORY_IMAGE']; ?>" 
-                        alt="<?php echo htmlspecialchars($cat_row['CATEGORY_NAME']); ?>">
-                    <span><?php echo htmlspecialchars($cat_row['CATEGORY_NAME']); ?></span>
+              // Retrieve all active categories (leaf subcategories and standalone categories)
+              $cat_sql = "
+                    SELECT c.CATEGORY_ID, c.CATEGORY_NAME, c.PARENT_ID,
+                          (SELECT COUNT(DISTINCT pc.PRODUCT_ID) 
+                            FROM product_category pc 
+                            JOIN product p ON p.PRODUCT_ID = pc.PRODUCT_ID 
+                            JOIN category c2 ON pc.CATEGORY_ID = c2.CATEGORY_ID
+                            WHERE (c2.CATEGORY_ID = c.CATEGORY_ID OR c2.PARENT_ID = c.CATEGORY_ID)
+                              AND p.IS_DELETED = 0 AND p.PRODUCT_STATUS = 'Active'
+                          ) AS PRODUCT_COUNT
+                    FROM category c
+                    WHERE c.CATEGORY_STATUS = 'Active' AND c.PARENT_ID IS NULL AND c.IS_DELETED = 0
+                    ORDER BY c.CATEGORY_ID ASC
+                ";
+              $cat_result = $conn->query($cat_sql);
+
+              if ($cat_result && $cat_result->num_rows > 0) {
+                while ($cat_row = $cat_result->fetch_assoc()) { 
+                  $cat_icon = getCategoryIcon($cat_row['CATEGORY_NAME']);
+                  $count = intval($cat_row['PRODUCT_COUNT']);
+                ?>
+                  <a href="product catalogue.php?id=<?php echo intval($cat_row['CATEGORY_ID']); ?>" class="category-card">
+                    <div class="category-icon-wrap">
+                      <i class="bi <?php echo $cat_icon; ?>"></i>
+                    </div>
+                    <div class="category-info">
+                      <div class="category-name"><?php echo htmlspecialchars($cat_row['CATEGORY_NAME']); ?></div>
+                      <div class="category-count">
+                        <span><?php echo $count; ?> <?php echo $count === 1 ? 'Product' : 'Products'; ?></span>
+                      </div>
+                    </div>
+                    <i class="bi bi-chevron-right category-arrow"></i>
                   </a>
-                </div>
-              <?php }
-            } ?>
+                <?php }
+              } else {
+                echo "<p class='text-muted' style='padding: 20px 80px;'>No categories found.</p>";
+              } ?>
           </div>
         </div>
 

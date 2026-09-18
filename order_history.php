@@ -17,18 +17,14 @@ $sql = "SELECT o.ORDER_ID,
             o.ORDER_STATUS, 
             o.TOTAL_AMOUNT,
             s.DELIVERY_STATUS,
-            o.DELIVERY_DATE, 
             p.PAYMENT_AMOUNT,
-            r.REFUND_ID,
            (SELECT COUNT(DISTINCT oi.PRODUCT_ID) FROM order_item oi 
-           WHERE oi.ORDER_ID = o.ORDER_ID 
-           AND oi.CUSTOM_ID IS NULL) AS TOTAL_ITEMS,
+           WHERE oi.ORDER_ID = o.ORDER_ID) AS TOTAL_ITEMS,
            (SELECT COUNT(DISTINCT rev.PRODUCT_ID) FROM review rev 
            WHERE rev.ORDER_ID = o.ORDER_ID 
            AND rev.CUSTOMER_ID = $customer_id) AS REVIEWED_COUNT
         FROM orders o
         LEFT JOIN payment p ON o.PAYMENT_ID = p.PAYMENT_ID
-        LEFT JOIN refund r ON o.ORDER_ID = r.ORDER_ID
         LEFT JOIN shipping s ON o.SHIPPING_ID = s.SHIPPING_ID
         WHERE o.CUSTOMER_ID = $customer_id 
         ORDER BY o.CREATED_AT DESC";
@@ -46,6 +42,7 @@ if ($result) {
     error_log("Order History Query Failed: " . mysqli_error($conn));
     $orders = [];
 }
+
 ?>
 
 <!DOCTYPE html>
@@ -57,8 +54,8 @@ if ($result) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=6.0">
-    <link rel="stylesheet" href="css/footer.css?v=6.0">
+    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
     
@@ -350,10 +347,6 @@ if ($result) {
         color: #2d6b3a;
     }
 
-    .status-REFUNDED {
-        background-color: #f9d9d9;
-        color: rgb(101, 54, 31);
-    }
 
     .order-status-text{
         color: rgb(208, 144, 153);
@@ -433,7 +426,6 @@ if ($result) {
        <button class="tab-btn" onclick="filterOrders('PROCESSING', this)">Processing</button>
        <button class="tab-btn" onclick="filterOrders('READY', this)">Ready</button>
        <button class="tab-btn" onclick="filterOrders('COMPLETED', this)">Completed</button>
-       <button class="tab-btn" onclick="filterOrders('REFUNDED', this)">Refunded</button>
     </div>
 
     <!-- Sort control (applies within the currently selected tab) -->
@@ -450,36 +442,9 @@ if ($result) {
         <div class="alert alert-light text-center">You haven't placed any orders yet.</div>
     <?php else: ?>
         <?php foreach ($orders as $order): 
-            // Check refund_request first
-            $check_stmt = $conn->prepare("
-            SELECT rr.REQUEST_ID, rr.REQUEST_STATUS, r.REFUND_ID, r.REFUND_STATUS
-            FROM refund_request rr
-            LEFT JOIN refund r ON rr.REQUEST_ID = r.REQUEST_ID
-            WHERE rr.ORDER_ID = ?
-            LIMIT 1
-        ");
-        $check_stmt->bind_param("i", $order['ORDER_ID']);
-        $check_stmt->execute();
-        $refund_res  = $check_stmt->get_result()->fetch_assoc();
-
-            $has_request = !empty($refund_res);
-            $request_status = $refund_res['REQUEST_STATUS'] ?? null;
-            $refund_status = $refund_res['REFUND_STATUS'] ?? null;
-            $is_pending = ($request_status === 'PENDING' || $refund_status === 'PENDING');
-            $linked_refund_id  = intval($refund_res['REFUND_ID'] ?? 0);
-            $linked_req_id = intval($refund_res['REQUEST_ID'] ?? 0);
-
             $is_completed = ($order['ORDER_STATUS'] === 'COMPLETED');
-            $is_refunded  = ($order['ORDER_STATUS'] === 'REFUNDED');
-            // Calculate 2-day refund deadline
-            $refund_deadline = null;
-            $refund_expired  = false;
-            if ($is_completed) {
-                $refund_deadline = strtotime($order['DELIVERY_DATE']) + (2 * 24 * 60 * 60);
-                $refund_expired  = (time() > $refund_deadline);
-            }
 
-            // If all items are custom cakes (TOTAL_ITEMS = 0), no review needed
+            // If all items are custom cakes / none (TOTAL_ITEMS = 0), no review needed
             $already_reviewed = ($order['TOTAL_ITEMS'] == 0) ? true : ($order['REVIEWED_COUNT'] >= $order['TOTAL_ITEMS']);
 
             $delivery_status = $order['DELIVERY_STATUS'] ?? 'Pending';
@@ -489,6 +454,7 @@ if ($result) {
 
             // Raw ISO timestamp used purely for client-side sorting by order date
             $created_raw = date('c', strtotime($order['CREATED_AT']));
+
         ?>
 
             <!--order card-->
@@ -505,7 +471,7 @@ if ($result) {
                 <p><span class="label">Order No: <?php echo htmlspecialchars($order['ORDER_NO']); ?></span></p>
                 <p><span class="label">Order Date: <?php echo date("d M Y, H:i", strtotime($order['CREATED_AT'])); ?></span></p>
                 <p><span class="label">Order Status: <span class="order-status-text"><?php echo htmlspecialchars($order['ORDER_STATUS']); ?></span></span></p>
-                <p><span class="label">Delivery Date: <?php echo date("d M Y", strtotime($order['DELIVERY_DATE'])); ?></span></p>
+                
                 <!-- Display TOTAL_AMOUNT -->
                 <p><span class="label">Total Payment: RM <?php echo number_format($display_amount, 2); ?></span></p>
                 
@@ -515,25 +481,6 @@ if ($result) {
                         <button type="button">View Details</button>
                     </a>
 
-                    <?php if ($is_completed || $is_refunded): ?>
-                        <?php if ($has_request): ?>
-                            <?php if ($is_pending): ?>
-                            <button type="button" class="btn-disabled" disabled>Refund Pending</button>
-                            <?php else: ?>
-                                <a href="refund.php?refund_id=<?php echo $linked_refund_id; ?>&request_id=<?php echo $linked_req_id; ?>">
-                                <button type="button">Refund Status</button>
-                                </a>
-                            <?php endif; ?>
-
-                        <?php elseif ($refund_expired): ?>
-                          <button type="button" disabled class="btn-disabled">Request Refund</button>
-
-                        <?php else: ?>
-                          <a href="refund_request.php?order_id=<?php echo $order['ORDER_ID']; ?>">
-                            <button type="button">Request Refund</button>
-                          </a>
-                        <?php endif; ?>
-                    <?php endif; ?>
 
                     <?php if ($is_completed): ?>
                         <?php if ($already_reviewed): ?>

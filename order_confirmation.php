@@ -78,8 +78,8 @@ if (!$is_failed) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=6.0">
-    <link rel="stylesheet" href="css/footer.css?v=6.0">
+    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
     <style>
@@ -395,41 +395,32 @@ if (!$is_failed) {
     <p class="subtitle">Thank you for your order. We will start preparing your cake soon.</p>
 
     <!-- Order details -->
-    <div class="info-card">
-        <h5><i class="bi bi-receipt me-2"></i>Order Details</h5>
+        <div class="info-card">
+            <h5><i class="bi bi-receipt me-2"></i>Order Details</h5>
 
-        <div class="info-row">
-            <span class="info-label">Order Number</span>
-            <span class="info-value"><?php echo htmlspecialchars($order['ORDER_NO']); ?></span>
-        </div>
-        <div class="info-row">
-            <span class="info-label">Payment Method</span>
-            <span class="info-value"><?php echo htmlspecialchars($order['PAYMENT_METHODS'] ?? '-'); ?></span>
-        </div>
-        <div class="info-row">
-            <span class="info-label">Delivery Date</span>
-            <span class="info-value"><?php echo date('d M Y', strtotime($order['DELIVERY_DATE'])); ?>
-            </span>
-        </div>
-        <div class="info-row">
-            <span class="info-label">Delivery Time</span>
-            <span class="info-value"><?php echo htmlspecialchars($order['DELIVERY_SLOT_SNAPSHOT'] ?? '-'); ?></span>
-        </div>
-        <div class="info-row">
-            <span class="info-label">Deliver To</span>
-            <span class="info-value"><?php echo htmlspecialchars($order['DELIVERY_ADDRESS_SNAPSHOT']); ?></span>
-        </div>
+            <div class="info-row">
+                <span class="info-label">Order Number</span>
+                <span class="info-value"><?php echo htmlspecialchars($order['ORDER_NO']); ?></span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Payment Method</span>
+                <span class="info-value"><?php echo htmlspecialchars($order['PAYMENT_METHODS'] ?? '-'); ?></span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Deliver To</span>
+                <span class="info-value"><?php echo htmlspecialchars($order['DELIVERY_ADDRESS_SNAPSHOT']); ?></span>
+            </div>
 
-        <?php if (!empty($order['VOUCHER_NAME_SNAPSHOT'])): ?>
-        <div class="info-row">
-            <span class="info-label">Voucher Used</span>
-            <span class="info-value">
-                <?php echo htmlspecialchars($order['VOUCHER_NAME_SNAPSHOT']); ?>
-                (<?php echo $order['DISCOUNT_RATE_SNAPSHOT']; ?>% OFF)
-            </span>
+            <?php if (!empty($order['VOUCHER_NAME_SNAPSHOT'])): ?>
+            <div class="info-row">
+                <span class="info-label">Voucher Used</span>
+                <span class="info-value">
+                    <?php echo htmlspecialchars($order['VOUCHER_NAME_SNAPSHOT']); ?>
+                    (<?php echo $order['DISCOUNT_RATE_SNAPSHOT']; ?>% OFF)
+                </span>
+            </div>
+            <?php endif; ?>
         </div>
-        <?php endif; ?>
-    </div>
 
     <!-- Price breakdown -->
     <div class="info-card">
@@ -458,75 +449,53 @@ if (!$is_failed) {
         </div>
     </div>
 
-    <!-- Items ordered -->
-    <div class="info-card">
-        <h5><i class="bi bi-box-seam me-2"></i>Items Ordered</h5>
+        <!-- Items ordered -->
+        <div class="info-card">
+            <h5><i class="bi bi-box-seam me-2"></i>Items Ordered</h5>
 
-        <?php if (empty($order_items)): ?>
-            <p style="font-size:13px; color:#888;">No items found.</p>
+            <?php if (empty($order_items)): ?>
+                <p style="font-size:13px; color:#888;">No items found.</p>
 
-        <?php else: ?>
-            <?php foreach ($order_items as $index => $item):
-                $item_unit_price = floatval($item['VARIANT_PRICE_SNAPSHOT']);
-                $item_total      = ($item_unit_price + $item['addon_total']) * intval($item['QUANTITY']);
-                $is_custom       = !empty($item['CUSTOM_ID']);
+            <?php else: ?>
+                <?php foreach ($order_items as $index => $item):
+                    $item_unit_price = floatval($item['VARIANT_PRICE_SNAPSHOT']);
+                    $item_total      = ($item_unit_price + $item['addon_total']) * intval($item['QUANTITY']);
+                    $is_last         = ($index === count($order_items) - 1);
+                ?>
 
-                // Add no-border class to the last item
-                $is_last = ($index === count($order_items) - 1);
-            ?>
+                <div class="item-row <?php echo $is_last ? 'no-border' : ''; ?>">
 
-            <div class="item-row <?php echo $is_last ? 'no-border' : ''; ?>">
+                    <!-- Name + total price -->
+                    <div class="item-top-line">
+                        <span>
+                            <?php echo htmlspecialchars($item['PRODUCT_NAME_SNAPSHOT']); ?>
+                            <span class="item-muted"> x<?php echo intval($item['QUANTITY']); ?></span>
 
-                <!-- Name + total price -->
-                <div class="item-top-line">
-                    <span>
-                        <?php if ($is_custom): ?>
-                            <span class="custom-badge">✦ Custom</span>
-                        <?php endif; ?>
+                            <?php if (!empty($item['VARIANT_LABEL_SNAPSHOT'])): ?>
+                                <span class="item-muted"> (<?php echo htmlspecialchars($item['VARIANT_LABEL_SNAPSHOT']); ?>)</span>
+                            <?php endif; ?>
+                        </span>
+                        <span>RM <?php echo number_format($item_total, 2); ?></span>
+                    </div>
 
-                        <?php echo htmlspecialchars($item['PRODUCT_NAME_SNAPSHOT']); ?>
-                        <span class="item-muted"> x<?php echo intval($item['QUANTITY']); ?></span>
+                    <!-- Add-ons -->
+                    <?php if (!empty($item['addons'])): ?>
+                        <div class="item-sub">
+                            <?php foreach ($item['addons'] as $addon): ?>
+                                <div>
+                                    + <?php echo htmlspecialchars($addon['ADDON_NAME_SNAPSHOT']); ?>
+                                    (RM <?php echo number_format($addon['ADDON_PRICE_SNAPSHOT'], 2); ?>
+                                    x <?php echo intval($addon['QUANTITY']); ?>)
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
 
-                        <?php if (!empty($item['VARIANT_SIZE_SNAPSHOT'])): ?>
-                            <span class="item-muted"> (<?php echo htmlspecialchars($item['VARIANT_SIZE_SNAPSHOT']); ?>)</span>
-                        <?php endif; ?>
-                    </span>
-                    <span>RM <?php echo number_format($item_total, 2); ?></span>
                 </div>
-
-                <!-- Cake writing -->
-                <?php if (!empty($item['CAKE_WRITING'])): ?>
-                    <div class="item-sub">
-                        <i class="bi bi-pen"></i>
-                        Writing: "<?php echo htmlspecialchars($item['CAKE_WRITING']); ?>"
-                    </div>
-                <?php endif; ?>
-
-                <!-- Add-ons -->
-                <?php if (!empty($item['addons'])): ?>
-                    <div class="item-sub">
-                        <?php foreach ($item['addons'] as $addon): ?>
-                            <div>
-                                + <?php echo htmlspecialchars($addon['ADDON_NAME_SNAPSHOT']); ?>
-                                (RM <?php echo number_format($addon['ADDON_PRICE_SNAPSHOT'], 2); ?>
-                                x <?php echo intval($addon['QUANTITY']); ?>)
-
-                                <?php if (!empty($addon['CARD_TEXT'])): ?>
-                                    <br>
-                                    <span class="item-card-text">
-                                        Card: "<?php echo htmlspecialchars($addon['CARD_TEXT']); ?>"
-                                    </span>
-                                <?php endif; ?>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php endif; ?>
-
-            </div>
-            <?php endforeach; ?>
-        <?php endif; ?>
-    </div>
-
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
+        
     <!-- Countdown -->
     <div class="redirect-box">
         <span id="countdown-text">
