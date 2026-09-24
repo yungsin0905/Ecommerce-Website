@@ -53,7 +53,7 @@ if($_SERVER["REQUEST_METHOD"] == "POST")
         VALUES ('$admin_id','$email','$token','$expires_at','$created_at')";
 
         if(mysqli_query($conn, $insertSql)){
-            $resetLink = "http://localhost/TWPLAB/AdminModuleFYP/admin_reset_password.php?token=" . $token;// The URL maybe need to change
+            $resetLink = "http://localhost/TWPLAB/admin/admin_reset_password.php?token=" . $token;// The URL maybe need to change
 
             //email sent
             $mail = new PHPMailer(true);

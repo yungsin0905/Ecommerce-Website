@@ -1,4 +1,5 @@
 <?php include 'include/config.php';
+require_once 'include/membership_functions.php';
 session_start();
 
 //error report for debug
@@ -12,7 +13,9 @@ if (!isset($_SESSION['CUSTOMER_ID'])) {
 }
 
 $customer_id = $_SESSION['CUSTOMER_ID'];
-
+// Run membership checks BEFORE reading tier/vouchers, so newly granted
+// monthly vouchers and tier changes show up on this same page load
+check_and_process_membership($conn, $customer_id);
 
 //get customer's tier info
 $customer_query = "SELECT c.TIER_ID, c.TOTAL_SPENT, mt.TIER_NAME
@@ -24,7 +27,12 @@ $customer_query = "SELECT c.TIER_ID, c.TOTAL_SPENT, mt.TIER_NAME
 $customer_result = mysqli_query($conn, $customer_query);
 $customer = mysqli_fetch_assoc($customer_result);
 
-$customer_tier_id = $customer['TIER_ID'];
+if (!$customer) {
+    session_destroy();
+    header("Location: login.php");
+    exit();
+}
+$customer_tier_id     = intval($customer['TIER_ID']);
 $customer_total_spent = $customer['TOTAL_SPENT'];
 assignTierVouchers($conn, $customer_id, $customer_tier_id);
 
@@ -34,16 +42,13 @@ assignTierVouchers($conn, $customer_id, $customer_tier_id);
 $voucher_result = mysqli_query($conn, "
         SELECT 
         v.*,
+        v.EXPIRY_DATE AS VOUCHER_EXPIRY_DATE,
         mt.TIER_NAME,
         cv.CUSTOMER_VOUCHER_ID,
         cv.USED_COUNT  AS CUSTOMER_USED_COUNT,
         cv.CLAIMED_AT,
         cv.EXPIRY_DATE AS CUSTOMER_EXPIRY_DATE,
-        cv.LAST_USED_AT,
-        CASE 
-            WHEN v.VOUCHER_TYPE = 'Public' THEN v.EXPIRY_DATE
-            ELSE cv.EXPIRY_DATE
-        END AS EFFECTIVE_EXPIRY_DATE
+        cv.LAST_USED_AT
 
     FROM customer_voucher cv
     INNER JOIN voucher v ON cv.VOUCHER_ID = v.VOUCHER_ID
@@ -74,16 +79,29 @@ function formatDate($dateStr) {
 
 while ($row = mysqli_fetch_assoc($voucher_result)) {
 /// Get the voucher's effective expiry date for this customer
-    $effective_expiry = $row['EFFECTIVE_EXPIRY_DATE'];
-     $is_expired = false;
+   $is_expired = false;
 
-      // Check expiry only if a valid date exists 
-    if (!empty($effective_expiry) &&
-      $effective_expiry !== '0000-00-00 00:00:00' 
-      && $effective_expiry !== '0000-00-00') {
-      $expiry = new DateTime($effective_expiry);
-      $is_expired = $expiry < $today;
+// check voucher table's own expiry
+$v_expiry = $row['VOUCHER_EXPIRY_DATE'];
+if (!empty($v_expiry) && $v_expiry !== '0000-00-00 00:00:00' && $v_expiry !== '0000-00-00') {
+    if (new DateTime($v_expiry) < $today) {
+        $is_expired = true;
     }
+}
+
+// check customer_voucher's own expiry
+$cv_expiry = $row['CUSTOMER_EXPIRY_DATE'];
+if (!$is_expired && !empty($cv_expiry) && $cv_expiry !== '0000-00-00 00:00:00' && $cv_expiry !== '0000-00-00') {
+    if (new DateTime($cv_expiry) < $today) {
+        $is_expired = true;
+    }
+}
+
+// Show the earlier of the two dates as the displayed expiry
+$display_candidates = array_filter([$v_expiry, $cv_expiry], function($d) {
+    return !empty($d) && $d !== '0000-00-00 00:00:00' && $d !== '0000-00-00';
+});
+$effective_expiry = !empty($display_candidates) ? min($display_candidates) : null;
 
      // How many times this specific customer has used this voucher (default 0 if not set)
     $customer_used = $row['CUSTOMER_USED_COUNT'] ?? 0;
@@ -105,7 +123,20 @@ while ($row = mysqli_fetch_assoc($voucher_result)) {
         $row['DISPLAY_EXPIRY'] = $effective_expiry;
         $available_vouchers[] = $row;
     }
-}
+
+    }
+
+       // Voucher usage history (from order snapshots, so it still works after a voucher is deleted)
+    $history_result = mysqli_query($conn,
+        "SELECT ORDER_ID, ORDER_NO, CREATED_AT,
+                VOUCHER_NAME_SNAPSHOT, VOUCHER_CODE_SNAPSHOT, DISCOUNT_AMOUNT_SNAPSHOT
+        FROM orders
+        WHERE CUSTOMER_ID = $customer_id
+          AND VOUCHER_NAME_SNAPSHOT IS NOT NULL
+          AND VOUCHER_NAME_SNAPSHOT != ''
+        ORDER BY CREATED_AT DESC"
+    );
+    $voucher_history = $history_result ? mysqli_fetch_all($history_result, MYSQLI_ASSOC) : [];
 ?>
 
 <!DOCTYPE html>
@@ -117,7 +148,7 @@ while ($row = mysqli_fetch_assoc($voucher_result)) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/header.css?v=8.0">
     <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
@@ -491,7 +522,11 @@ while ($row = mysqli_fetch_assoc($voucher_result)) {
               <!-- Left Discount Area -->
               <div class="voucher-left">
                 <div class="discount-wrap">
-                  <span class="discount-value"><?= $v['DISCOUNT_RATE'] ?></span><span class="discount-symbol">%</span>
+                  <?php if (($v['DISCOUNT_TYPE'] ?? 'PERCENTAGE') === 'FIXED'): ?>
+                    <span class="discount-symbol" style="margin:0 4px 0 0;">RM</span><span class="discount-value"><?= intval($v['DISCOUNT_RATE']) ?></span>
+                  <?php else: ?>
+                    <span class="discount-value"><?= $v['DISCOUNT_RATE'] ?></span><span class="discount-symbol">%</span>
+                  <?php endif; ?>
                   <span class="discount-type">OFF</span>
                 </div>
                 <div class="min-spend-badge">
@@ -521,7 +556,8 @@ while ($row = mysqli_fetch_assoc($voucher_result)) {
                 <h3 class="voucher-card-title"><?= htmlspecialchars($v['VOUCHER_NAME']) ?></h3>
                 
                 <p class="voucher-subtext">
-                  <i class="bi bi-tag-fill"></i> Shop name
+                  <i class="bi bi-tag-fill"></i>
+                  <?= (($v['DISCOUNT_TYPE'] ?? 'PERCENTAGE') === 'FIXED') ? 'Fixed amount off your order' : 'Percentage off your order' ?>
                 </p>
 
                 <div class="voucher-bottom-bar">
@@ -535,6 +571,37 @@ while ($row = mysqli_fetch_assoc($voucher_result)) {
           <?php endforeach;?>
         </div>
       <?php endif;?>
+    </div>
+
+    <div class="voucher-group">
+      <h3 class="group-label">Voucher History</h3>
+
+      <?php if (empty($voucher_history)): ?>
+        <p style="color:var(--font2-color); opacity:0.7;">You haven't used any vouchers yet.</p>
+      <?php else: ?>
+        <div class="table-responsive">
+          <table class="table align-middle" style="font-size:14px;">
+            <thead>
+              <tr>
+                <th>Date Used</th>
+                <th>Voucher</th>
+                <th>Order</th>
+                <th class="text-end">Saved</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($voucher_history as $h): ?>
+              <tr>
+                <td><?= date('d M Y', strtotime($h['CREATED_AT'])) ?></td>
+                <td><?= htmlspecialchars($h['VOUCHER_NAME_SNAPSHOT']) ?></td>
+                <td><a href="order.php?id=<?= intval($h['ORDER_ID']) ?>"><?= htmlspecialchars($h['ORDER_NO']) ?></a></td>
+                <td class="text-end">- RM <?= number_format($h['DISCOUNT_AMOUNT_SNAPSHOT'], 2) ?></td>
+              </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php endif; ?>
     </div>
   </section>
 

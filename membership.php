@@ -1,121 +1,79 @@
 <?php include 'include/config.php';
+require_once 'include/membership_functions.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-//error report for debug
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
-
-//verify user login
 if (!isset($_SESSION['CUSTOMER_ID'])) {
     header("Location: login.php");
     exit();
 }
 
-$customer_id = $_SESSION['CUSTOMER_ID'];
+$customer_id = intval($_SESSION['CUSTOMER_ID']);
 
-$customer_query = "SELECT c.*, t.TIER_NAME, t.MIN_SPENT
-FROM customer c
-LEFT JOIN membership_tier t ON c.TIER_ID = t.TIER_ID
-WHERE c.CUSTOMER_ID = $customer_id
-AND c.STATUS = 'Active'";
+// Run membership checks BEFORE reading data so this page shows up-to-date info
+check_and_process_membership($conn, $customer_id);
 
-$customer_result = mysqli_query($conn, $customer_query);
+$customer_result = mysqli_query($conn,
+    "SELECT c.*, t.TIER_NAME, t.MIN_SPENT
+     FROM customer c
+     LEFT JOIN membership_tier t ON c.TIER_ID = t.TIER_ID
+     WHERE c.CUSTOMER_ID = $customer_id AND c.STATUS = 'Active'"
+);
 $customer = mysqli_fetch_assoc($customer_result);
 
-//retrieve all membership tier
-$tier_query = "SELECT * FROM membership_tier WHERE STATUS = 'Active' ORDER BY MIN_SPENT ASC";
-$tier_result = mysqli_query($conn, $tier_query);
+if (!$customer) {
+    session_destroy();
+    header("Location: login.php");
+    exit();
+}
+
+$tier_result = mysqli_query($conn, "SELECT * FROM membership_tier WHERE STATUS = 'Active' ORDER BY MIN_SPENT ASC");
 $tiers = mysqli_fetch_all($tier_result, MYSQLI_ASSOC);
 
-$current_tier_name = $customer['TIER_NAME'];
-$total_spent = (float)($customer['TOTAL_SPENT']??0);
+$current_tier_name      = $customer['TIER_NAME'];
+$current_tier_min_spent = floatval($customer['MIN_SPENT']);
+$quarter_spent          = floatval($customer['QUARTER_SPENT']);
 
-//checking if the current tier is still in the active tiers
-$current_still_active = false;
-foreach ($tiers as $t) {
-    if ($t['TIER_ID'] === $customer['TIER_ID']) {
-        $current_still_active = true;
-        break;
-    }
-}
+// End of the current 3-month window
+$window_start = !empty($customer['TIER_WINDOW_START']) ? new DateTime($customer['TIER_WINDOW_START']) : new DateTime();
+$window_end   = clone $window_start;
+$window_end->modify('+3 months');
+$window_end_text = $window_end->format('d M Y');
 
-//if current tier still active, allow proceed calculate upgrade current tier
-if ($current_still_active) {
-    $correct_tier = $tiers[0];
-    foreach ($tiers as $tier) {
-        if ($total_spent >= $tier['MIN_SPENT']) {
-            $correct_tier = $tier;
-        }
-    }
-
-    if ($correct_tier['TIER_NAME'] !== $customer['TIER_NAME']) {
-        mysqli_query($conn, "UPDATE customer SET TIER_ID = {$correct_tier['TIER_ID']} WHERE CUSTOMER_ID = $customer_id");
-        $customer['TIER_ID'] = $correct_tier['TIER_ID'];
-        $customer['TIER_NAME'] = $correct_tier['TIER_NAME'];
-        $customer['MIN_SPENT'] = $correct_tier['MIN_SPENT'];
-    }
-
-    $correct_tier_name     = $correct_tier['TIER_NAME'];
-    $current_tier_min_spent = $correct_tier['MIN_SPENT'];
-} else {
-    // tier inactive - no update
-    $correct_tier = [
-        'TIER_ID'    => $customer['TIER_ID'],
-        'TIER_NAME'  => $customer['TIER_NAME'],
-        'MIN_SPENT'  => $customer['MIN_SPENT'],
-    ];
-    $current_tier_min_spent = $customer['MIN_SPENT'];
-}
-
-$current_tier_name = $correct_tier['TIER_NAME'];
-
-
-//find another tier and progress
-$progress_text = "All benefits unlocked";
-foreach ($tiers as $index => $tier) {
-    if ($tier ['TIER_NAME'] === $current_tier_name) {
-        if (isset($tiers[$index + 1])) {
-           $next = $tiers[$index +1];
-           $spend_needed = max(0, $next['MIN_SPENT'] - $total_spent);
-           $progress_text = "Spend more RM" . number_format($spend_needed,2) . " / RM" . number_format($next['MIN_SPENT'], 2) . " to upgrade to " . $next['TIER_NAME'];
-        }
-        break;
-    }
-}
-
-$higher_tiers = array_filter($tiers, function($tier) use ($current_tier_min_spent){
-  return $tier['MIN_SPENT'] > $current_tier_min_spent;
+// Tiers above the current one, and the very next one
+$higher_tiers = array_filter($tiers, function($t) use ($current_tier_min_spent) {
+    return floatval($t['MIN_SPENT']) > $current_tier_min_spent;
 });
+$next_tier = !empty($higher_tiers) ? reset($higher_tiers) : null;
+
+if ($next_tier) {
+    $spend_needed  = max(0, floatval($next_tier['MIN_SPENT']) - $quarter_spent);
+    $progress_text = "Spend RM " . number_format($spend_needed, 2) . " more before " . $window_end_text . " to upgrade to " . $next_tier['TIER_NAME'];
+} else {
+    $progress_text = "You are on the highest tier";
+}
+
+// How to keep the current tier at the end of this window
+$retain_text = '';
+if ($current_tier_min_spent > 0) {
+    $retain_needed = max(0, $current_tier_min_spent - $quarter_spent);
+    $retain_text = ($retain_needed > 0)
+        ? "Spend RM " . number_format($retain_needed, 2) . " more before " . $window_end_text . " to keep " . $current_tier_name
+        : "You have met the requirement to keep " . $current_tier_name . " this period";
+}
 
 function getTierClass($name){
-  $map = [
-    'Bronze' => 'bronze-tier',
-    'Silver' => 'silver-tier',
-    'Gold' => 'gold-tier'
-  ];
-  return $map[$name] ?? 'bronze-tier';
+    $map = [
+        'Classic'   => 'bronze-tier',
+        'Silver'    => 'silver-tier',
+        'Gold'      => 'gold-tier',
+        'Platinum'  => 'platinum-tier',
+        'Plantinum' => 'platinum-tier'   // spelling used in your database
+    ];
+    return $map[$name] ?? 'bronze-tier';
 }
-
-//display membership discount
-$discount_query = "SELECT t.TIER_ID, t.TIER_NAME, t.MIN_SPENT, v.DISCOUNT_RATE
-                   FROM membership_tier t
-                   LEFT JOIN voucher v ON v.TIER_ID = t.TIER_ID 
-                   AND v.VOUCHER_STATUS = 'Active' 
-                   AND v.IS_DELETED = 0
-                   ORDER BY t.MIN_SPENT ASC, v.DISCOUNT_RATE DESC";
-
-$discount_result = mysqli_query($conn, $discount_query);
-$tier_discounts = [];
-while ($row = mysqli_fetch_assoc($discount_result)) {
-    $tid = $row['TIER_ID'];
-    if (!isset($tier_discounts[$tid])) {
-        $tier_discounts[$tid] = $row; 
-    }
-}
-
 ?>
 
 <!DOCTYPE html>
@@ -127,7 +85,7 @@ while ($row = mysqli_fetch_assoc($discount_result)) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/header.css?v=8.0">
     <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -240,6 +198,12 @@ while ($row = mysqli_fetch_assoc($discount_result)) {
         background: linear-gradient(135deg, #132233 0%, #1e3d5a 45%, #c29938 100%);
         color: #ffffff;
         border: 1px solid rgba(194, 153, 56, 0.4);
+      }
+
+      .platinum-tier {
+        background: linear-gradient(135deg, #1a1a2e 0%, #3d3d5c 50%, #b8b8d1 100%);
+        color: #ffffff;
+        border: 1px solid rgba(184, 184, 209, 0.4);
       }
 
       .tier-content {
@@ -449,6 +413,9 @@ while ($row = mysqli_fetch_assoc($discount_result)) {
         <p class="member-tier"><i class="bi bi-shield-check"></i> Your Member tier <i class="bi bi-chevron-right"></i></p>
         <h2 class="tier-name"><?php echo htmlspecialchars($current_tier_name); ?></h2>
         <p class="progress-text"><?php echo htmlspecialchars($progress_text); ?></p>
+        <?php if ($retain_text): ?>
+          <p class="progress-text"><i class="bi bi-arrow-repeat"></i> <?php echo htmlspecialchars($retain_text); ?></p>
+        <?php endif; ?>
       </div>
       <div class="tier-icon-wrap">
         <i class="bi bi-cpu-fill"></i>
@@ -464,57 +431,49 @@ while ($row = mysqli_fetch_assoc($discount_result)) {
       <div class="rules-content">
         <ol>
           <li>Sign up as a member to start enjoying loyalty rewards on hardware and components</li>
-          <li>Unlock higher membership tiers automatically as you spend more</li>
-          <?php foreach($tier_discounts as $tier): ?>
+          <li>Your spending is tracked in 3-month periods. Reach a higher tier's target and you are upgraded immediately; if you fall short at the end of a period, you move to the highest tier your spending qualifies for.</li>
+          <?php foreach ($tiers as $tier): ?>
             <li>
               <strong><?= htmlspecialchars($tier['TIER_NAME']) ?>:</strong>
-              <?php if($tier['MIN_SPENT'] == 0): ?>
-                Granted upon registration. Newly registered members receive exclusive vouchers with a <strong><?= $tier['DISCOUNT_RATE'] ?>% discount</strong>.
+              <?php if (floatval($tier['MIN_SPENT']) > 0): ?>
+                Spend <strong>RM <?= number_format($tier['MIN_SPENT'], 2) ?></strong> every 3 months to unlock and keep this tier.
               <?php else: ?>
-                Unlocked after accumulating <strong>RM <?= number_format($tier['MIN_SPENT'], 2) ?></strong> in total spending.
-                <?php if(!empty($tier['DISCOUNT_RATE'])): ?>
-                  Members receive exclusive vouchers with a <strong><?= $tier['DISCOUNT_RATE'] ?>% discount</strong>.
-                <?php endif; ?>
+                Granted upon registration.
+              <?php endif; ?>
+              Free shipping.
+              <?php if (!empty($tier['MONTHLY_VOUCHER_AMOUNT'])): ?>
+                A <strong>RM <?= number_format($tier['MONTHLY_VOUCHER_AMOUNT'], 0) ?> voucher</strong> every month and a free gift.
               <?php endif; ?>
             </li>
           <?php endforeach; ?>
+          <li><strong>All tiers:</strong> get a RM5 voucher for every order over RM100, and a RM10 voucher when you spend RM1,000 within 3 months.</li>
+          <li>Vouchers are valid for 30 days after they are issued.</li>
         </ol>
       </div>
 
-      <?php 
-      $higher_tiers = array_filter($tiers, function($tier) use ($customer){
-        return $tier['MIN_SPENT']>$customer['MIN_SPENT'];
-      });
-      ?>
+        <?php if (!empty($higher_tiers)): ?>
+        <div class="upgrade-section">
+          <h3 class="upgrade-title">Upgrade Your Membership</h3>
 
-      <?php if (!empty($higher_tiers)): ?>
-      <div class="upgrade-section">
-        <h3 class="upgrade-title">Upgrade Your Membership</h3>
-        
-        <?php foreach($higher_tiers as $tier): ?>
-          <?php
-          $upgrade_text = "All benefits unlocked";
-          foreach ($tiers as $i => $t) {
-            if ($t['TIER_ID'] === $tier['TIER_ID'] && isset($tiers[$i + 1])){
-              $upgrade_text = "Spend RM " . number_format($tiers[$i + 1]['MIN_SPENT'], 2) . " to unlock next tier";
-              break;
-            }
-          }
-          ?>
-
-        <div class="member-tier-section <?php echo getTierClass($tier['TIER_NAME']);?> tier-locked">
-          <div class="tier-content">
-            <p class="member-tier"><i class="bi bi-lock-fill"></i> Higher Tier</p>
-            <h2 class="tier-name"><?php echo htmlspecialchars($tier['TIER_NAME']); ?></h2>
-            <p class="progress-text">Unlock at RM <?= number_format($tier['MIN_SPENT'], 2); ?> total spending</p>
+          <?php foreach ($higher_tiers as $tier): ?>
+          <div class="member-tier-section <?php echo getTierClass($tier['TIER_NAME']); ?> tier-locked">
+            <div class="tier-content">
+              <p class="member-tier"><i class="bi bi-lock-fill"></i> Higher Tier</p>
+              <h2 class="tier-name"><?php echo htmlspecialchars($tier['TIER_NAME']); ?></h2>
+              <p class="progress-text">
+                Unlock by spending RM <?= number_format($tier['MIN_SPENT'], 2); ?> within 3 months
+                <?php if (!empty($tier['MONTHLY_VOUCHER_AMOUNT'])): ?>
+                  &middot; RM <?= number_format($tier['MONTHLY_VOUCHER_AMOUNT'], 0) ?> monthly voucher
+                <?php endif; ?>
+              </p>
+            </div>
+            <div class="tier-icon-wrap">
+              <i class="bi bi-award-fill"></i>
+            </div>
           </div>
-          <div class="tier-icon-wrap">
-            <i class="bi bi-award-fill"></i>
-          </div>
+          <?php endforeach; ?>
         </div>
-        <?php endforeach;?>
-      </div> 
-      <?php endif;?>
+        <?php endif; ?>
     </div> 
   </div> 
 

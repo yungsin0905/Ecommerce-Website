@@ -70,6 +70,14 @@ if(isset($_POST['google_token'])){
         }
         $customer_id = mysqli_insert_id($conn);
         assignTierVouchers($conn, $customer_id, 1);
+
+        // NEW: send welcome notification
+        require_once 'include/membership_functions.php';
+        $bakery_res = $conn->query("SELECT SHOP_NAME FROM bakery_info LIMIT 1");
+        $bakery_row = $bakery_res->fetch_assoc();
+        $shop_name  = $bakery_row['SHOP_NAME'] ?? 'our bakery';
+        notify_customer($conn, $customer_id, 'System', null,
+        "Welcome to $shop_name, $full_name! We're excited to have you join our community of makers and tech enthusiasts.");
       }
       
       $insertSocial = "INSERT INTO social_login (CUSTOMER_ID,PROVIDER,SOCIAL_EMAIL,PROVIDER_USER_ID)
@@ -199,7 +207,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['google_token'])) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/header.css?v=8.0">
     <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
@@ -415,15 +423,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['google_token'])) {
       }
 
       .password-rules li::before {
-        content: 'âœ—  ';
-        color: #e57373;
+          content: '\2717  ';
+          color: #e57373;
       }
 
       .password-rules li.passed::before {
-        content: 'âœ“  ';
-        color: #66bb6a;
+          content: '\2713  ';
+          color: #66bb6a;
       }
-
       .password-rules li.passed {
         color: #66bb6a;
       }

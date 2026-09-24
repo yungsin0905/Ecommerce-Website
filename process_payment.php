@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once 'include/config.php';
+require_once 'include/membership_functions.php';
 
 // 1. Ensure user already logged in
 if (!isset($_SESSION['CUSTOMER_ID'])) {
@@ -119,16 +120,16 @@ if (!empty($selected_item_ids)) {
 
         $cart_item_id = intval($item['CART_ITEM_ID']);
         $addon_result = mysqli_query($conn,
-            "SELECT cia.QUANTITY AS ADDON_QTY, pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE AS OVERRIDE_PRICE,
-            pa.ADDON_VARIANT_ID,
-            ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME,
-            apv.VARIANT_PRICE, apv.SALE_PRICE
-            FROM cart_item_addon cia
-            JOIN product_addon pa ON cia.PRODUCT_ADD_ON_ID = pa.PRODUCT_ADDON_ID
-            JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
-            LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
-            WHERE cia.CART_ITEM_ID = $cart_item_id"
-        );
+                "SELECT cia.QUANTITY AS ADDON_QTY, pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE AS OVERRIDE_PRICE,
+                        pa.ADDON_VARIANT_ID,
+                        ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME,
+                        apv.VARIANT_PRICE, apv.SALE_PRICE
+                FROM cart_item_addon cia
+                JOIN product_addon pa ON cia.PRODUCT_ADD_ON_ID = pa.PRODUCT_ADDON_ID
+                JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
+                LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
+                WHERE cia.CART_ITEM_ID = $cart_item_id"
+            );
         while ($addon = mysqli_fetch_assoc($addon_result)) {
             if ($addon['OVERRIDE_PRICE'] !== null) {
                 $addon_unit_price = floatval($addon['OVERRIDE_PRICE']);
@@ -182,11 +183,20 @@ if ($voucher_id > 0) {
         $spend_ok  = ($sub_total >= floatval($v_row['MIN_SPEND']));
 
         if ($start_ok && $expiry_ok && $global_ok && $user_ok && $spend_ok) {
-            $voucher_data             = $v_row;
-            $voucher_discount_rate    = floatval($v_row['DISCOUNT_RATE']);
-            $verified_discount_amount = $sub_total * ($voucher_discount_rate / 100);
-            $voucher_name_snap        = $v_row['VOUCHER_NAME'];
-            $voucher_code_snap        = $v_row['VOUCHER_CODE'];
+            $voucher_data          = $v_row;
+            $voucher_discount_rate = floatval($v_row['DISCOUNT_RATE']);
+
+            // Support both percentage and fixed-amount vouchers.
+            // NOTE: existing DISCOUNT_TYPE values default to 'PERCENTAGE', so
+            // any voucher created before this change behaves exactly as before.
+            if (isset($v_row['DISCOUNT_TYPE']) && $v_row['DISCOUNT_TYPE'] === 'FIXED') {
+                $verified_discount_amount = min($voucher_discount_rate, $sub_total);
+            } else {
+                $verified_discount_amount = $sub_total * ($voucher_discount_rate / 100);
+            }
+
+            $voucher_name_snap = $v_row['VOUCHER_NAME'];
+            $voucher_code_snap = $v_row['VOUCHER_CODE'];
         } else {
             $voucher_id = 0;
         }
@@ -389,14 +399,6 @@ try {
                     ($order_id, $product_id, $variant_id, $qty,
                     '$p_name_snap', '$v_label_snap', $v_price_snap, $warranty_snap)"
             );
-            // Deduct stock from the addon's own variant, if it has one
-            if (!empty($addon['ADDON_VARIANT_ID'])) {
-                $addon_variant_id = intval($addon['ADDON_VARIANT_ID']);
-                mysqli_query($conn, "UPDATE product_variant SET VARIANT_STOCK = VARIANT_STOCK - $aqty WHERE VARIANT_ID = $addon_variant_id");
-                if (mysqli_errno($conn)) {
-                    throw new Exception("Failed to deduct addon stock: " . mysqli_error($conn));
-                }
-            }
             if (mysqli_errno($conn)) {
                 throw new Exception("Failed to insert order item: " . mysqli_error($conn));
             }
@@ -448,6 +450,14 @@ try {
                          ($order_item_id, $addon_id, $aqty,
                           '$addon_name_esc', $addon_price_f)"
                 );
+                    // Deduct stock from the addon's own variant, if it has one
+                if (!empty($addon['ADDON_VARIANT_ID'])) {
+                    $addon_variant_id = intval($addon['ADDON_VARIANT_ID']);
+                    mysqli_query($conn, "UPDATE product_variant SET VARIANT_STOCK = VARIANT_STOCK - $aqty WHERE VARIANT_ID = $addon_variant_id");
+                    if (mysqli_errno($conn)) {
+                        throw new Exception("Failed to deduct addon stock: " . mysqli_error($conn));
+                    }
+                }
                 if (mysqli_errno($conn)) {
                     throw new Exception("Failed to insert order item addon: " . mysqli_error($conn));
                 }
@@ -457,7 +467,7 @@ try {
             mysqli_query($conn, "DELETE FROM cart_item_addon WHERE CART_ITEM_ID = $cart_item_id");
             mysqli_query($conn, "DELETE FROM cart_item WHERE CART_ITEM_ID = $cart_item_id");
         }
-    }elseif ($is_buynow && empty($selected_item_ids) && isset($_SESSION['buynow_item'])) {
+    } elseif ($is_buynow && empty($selected_item_ids) && isset($_SESSION['buynow_item'])) {
         // f(ii). Insert order item for buy-now purchase
         $bn_item    = $_SESSION['buynow_item'];
         $variant_id = intval($bn_item['variant_id'] ?? 0);
@@ -554,7 +564,7 @@ try {
         unset($_SESSION['checkout_selected_items']);
     }
 
-        // g. Update voucher usage count
+    // g. Update voucher usage count
     if ($voucher_id > 0 && $voucher_data !== null) {
         mysqli_query($conn,
             "UPDATE voucher
@@ -577,34 +587,126 @@ try {
         }
     }
 
-    // h. Update total spending and membership tier
+    // h. Update spending totals (lifetime stat + the two rolling reward windows).
+    //    Tier upgrades/downgrades are NOT decided here anymore - they're only
+    //    evaluated when this customer's TIER_WINDOW_START closes, handled by
+    //    process_tier_maintenance() in include/membership_functions.php
+    //    (triggered on page load via include/header.php). Keeping a single
+    //    source of truth for tier changes avoids the old conflict where this
+    //    lifetime-total check could immediately re-upgrade someone the
+    //    quarterly check had just downgraded.
     $spend_f = number_format($final_amount, 2, '.', '');
 
     mysqli_query($conn,
         "UPDATE customer
-         SET TOTAL_SPENT = TOTAL_SPENT + $spend_f
+         SET TOTAL_SPENT     = TOTAL_SPENT + $spend_f,
+             QUARTER_SPENT   = QUARTER_SPENT + $spend_f,
+             MILESTONE_SPENT = MILESTONE_SPENT + $spend_f
          WHERE CUSTOMER_ID = $customer_id"
     );
     if (mysqli_errno($conn)) {
-        throw new Exception("Failed to update total spending: " . mysqli_error($conn));
+        throw new Exception("Failed to update customer spending totals: " . mysqli_error($conn));
     }
 
-    $spent_result    = mysqli_query($conn, "SELECT TOTAL_SPENT FROM customer WHERE CUSTOMER_ID = $customer_id");
-    $spent_row       = mysqli_fetch_assoc($spent_result);
-    $new_total_spent = floatval($spent_row['TOTAL_SPENT']);
 
-    $tier_result = mysqli_query($conn,
+    // h1.5. Immediate upgrade check: if this order's updated QUARTER_SPENT already
+    // qualifies for a higher tier than the customer currently holds, upgrade now.
+    // Downgrades still only happen at quarter-end via process_tier_maintenance().
+    $qs_result = mysqli_query($conn, "SELECT TIER_ID, QUARTER_SPENT FROM customer WHERE CUSTOMER_ID = $customer_id");
+    $qs_row    = mysqli_fetch_assoc($qs_result);
+    $current_tier_id       = intval($qs_row['TIER_ID']);
+    $current_quarter_spent = floatval($qs_row['QUARTER_SPENT']);
+
+    $current_min_result = mysqli_query($conn, "SELECT MIN_SPENT FROM membership_tier WHERE TIER_ID = $current_tier_id");
+    $current_min_row    = mysqli_fetch_assoc($current_min_result);
+    $current_min_spent  = floatval($current_min_row['MIN_SPENT'] ?? 0);
+
+    $upgrade_check = mysqli_query($conn,
         "SELECT TIER_ID FROM membership_tier
-         WHERE STATUS = 'Active'
-           AND MIN_SPENT <= $new_total_spent
-         ORDER BY MIN_SPENT DESC
-         LIMIT 1"
+        WHERE STATUS = 'Active'
+        AND MIN_SPENT <= $current_quarter_spent
+        AND MIN_SPENT > $current_min_spent
+        ORDER BY MIN_SPENT DESC LIMIT 1"
     );
-    if ($tier_row = mysqli_fetch_assoc($tier_result)) {
-        $new_tier_id = intval($tier_row['TIER_ID']);
-        mysqli_query($conn, "UPDATE customer SET TIER_ID = $new_tier_id WHERE CUSTOMER_ID = $customer_id");
+
+        if ($upgrade_row = mysqli_fetch_assoc($upgrade_check)) {
+        $eligible_tier_id = intval($upgrade_row['TIER_ID']);
+        // Upgrading restarts the 3-month tier window immediately, rather than
+        // letting the new tier ride out whatever time was left on the old one.
+        mysqli_query($conn,
+            "UPDATE customer
+             SET TIER_ID = $eligible_tier_id,
+                 TIER_WINDOW_START = CURDATE()
+             WHERE CUSTOMER_ID = $customer_id"
+        );
         if (mysqli_errno($conn)) {
-            throw new Exception("Membership tier update failed: " . mysqli_error($conn));
+            throw new Exception("Failed to apply immediate tier upgrade: " . mysqli_error($conn));
+        }
+        if (function_exists('assignTierVouchers')) {
+            assignTierVouchers($conn, $customer_id, $eligible_tier_id);
+        }
+
+         // Notify the customer about the tier upgrade
+        $eligible_tier_name_res = mysqli_query($conn,
+            "SELECT TIER_NAME FROM membership_tier WHERE TIER_ID = $eligible_tier_id LIMIT 1"
+        );
+        $eligible_tier_name_row = $eligible_tier_name_res ? mysqli_fetch_assoc($eligible_tier_name_res) : null;
+
+        if ($eligible_tier_name_row) {
+            $eligible_tier_name = $eligible_tier_name_row['TIER_NAME'];
+            notify_customer($conn, $customer_id, 'Membership', $eligible_tier_id,
+                "Congratulations! You've been upgraded to $eligible_tier_name tier. Enjoy your new benefits!"
+            );
+        }
+
+        // Grant the new tier's monthly voucher right away, instead of making
+        // the customer wait until the regular monthly schedule catches up.
+        // Any voucher already granted under the previous (lower) tier is
+        // untouched - this only adds a new one for the tier just reached.
+        $new_tier_res = mysqli_query($conn,
+            "SELECT TIER_NAME, MONTHLY_VOUCHER_AMOUNT FROM membership_tier
+             WHERE TIER_ID = $eligible_tier_id AND STATUS = 'Active' LIMIT 1"
+        );
+        $new_tier = $new_tier_res ? mysqli_fetch_assoc($new_tier_res) : null;
+
+        if ($new_tier && $new_tier['MONTHLY_VOUCHER_AMOUNT'] !== null) {
+            $monthly_amount = floatval($new_tier['MONTHLY_VOUCHER_AMOUNT']);
+            $voucher_name   = $new_tier['TIER_NAME'] . ' Monthly Reward - ' . (new DateTime())->format('M Y');
+
+            $granted = grant_fixed_voucher($conn, $customer_id, $voucher_name, $monthly_amount, 'Public', null, 30);
+            if ($granted) {
+                // Reset the monthly clock so next month's scheduled check
+                // waits a full month from today, not from before the upgrade.
+                mysqli_query($conn, "UPDATE customer SET LAST_TIER_VOUCHER_DATE = CURDATE() WHERE CUSTOMER_ID = $customer_id");
+                if (mysqli_errno($conn)) {
+                    throw new Exception("Failed to update LAST_TIER_VOUCHER_DATE after upgrade: " . mysqli_error($conn));
+                }
+            }
+        }
+    }
+    // h1. Single-order reward: any order over RM100 grants an immediate RM5
+    //     voucher, regardless of membership tier.
+    if ($final_amount > 100) {
+        grant_fixed_voucher($conn, $customer_id, 'Order Reward - Spend RM100+', 5.00, 'Public', null, 30);
+    }
+
+    // h2. Milestone reward: cumulative spend of RM1000 within the rolling
+    //     3-month milestone window grants a RM10 voucher and restarts that
+    //     window immediately (doesn't wait for the window to naturally expire).
+    $milestone_result = mysqli_query($conn, "SELECT MILESTONE_SPENT FROM customer WHERE CUSTOMER_ID = $customer_id");
+    $milestone_row    = mysqli_fetch_assoc($milestone_result);
+    $milestone_spent  = floatval($milestone_row['MILESTONE_SPENT']);
+
+    if ($milestone_spent >= 1000) {
+        grant_fixed_voucher($conn, $customer_id, 'Milestone Reward - RM1000 Spent', 10.00, 'Public', null, 30);
+        mysqli_query($conn,
+            "UPDATE customer
+             SET MILESTONE_SPENT = 0.00,
+                 MILESTONE_WINDOW_START = CURDATE()
+             WHERE CUSTOMER_ID = $customer_id"
+        );
+        if (mysqli_errno($conn)) {
+            throw new Exception("Failed to reset milestone window: " . mysqli_error($conn));
         }
     }
 

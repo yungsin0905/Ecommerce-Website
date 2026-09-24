@@ -121,6 +121,13 @@ unset($a);
   $img_result = mysqli_query($conn, $img_query);
   $images = mysqli_fetch_all($img_result, MYSQLI_ASSOC);
 
+  $option_value_images = [];
+foreach ($images as $img) {
+    if (!empty($img['OPTION_VALUE_ID'])) {
+        $option_value_images[$img['OPTION_VALUE_ID']] = 'admin/' . $img['IMAGE_PATH'];
+    }
+}
+
   //retrieve product variant
   $variant_query = "SELECT * FROM product_variant WHERE PRODUCT_ID = $product_id AND VARIANT_STATUS = 'Active' 
   AND IS_DELETED = 0 
@@ -278,7 +285,7 @@ if (isset($_GET['cart_item_id'])) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-      <link rel="stylesheet" href="css/header.css?v=7.0">
+      <link rel="stylesheet" href="css/header.css?v=8.0">
       <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -1403,6 +1410,7 @@ if (isset($_GET['cart_item_id'])) {
     const productVariants = <?php echo json_encode($variants); ?>;
     const variantOptionMap = <?php echo json_encode($variant_option_map); ?>;
     const optionGroups = <?php echo json_encode($option_groups); ?>;
+    const optionValueImages = <?php echo json_encode($option_value_images); ?>;
     let selectedOptions = {}; // level(数字) -> value_id
 
     function findMatchingVariants(partialIds) {
@@ -1433,6 +1441,11 @@ if (isset($_GET['cart_item_id'])) {
     });
 
     updateSelectedVariant();
+
+    if (optionValueImages[valueId]) {
+        const matchThumb = document.querySelector(`.thumbnail-list img[src="${optionValueImages[valueId]}"]`);
+        switchMainImage(optionValueImages[valueId], matchThumb);
+    }
 }
 
     function updateAvailableOptions() {

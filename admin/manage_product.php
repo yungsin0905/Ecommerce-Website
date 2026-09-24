@@ -105,7 +105,7 @@ if ($status != '') {
 }
 
 if ($category != '') {
-    $where[] = "p.CATEGORY_ID = ?";
+    $where[] = "p.PRODUCT_ID IN (SELECT PRODUCT_ID FROM product_category WHERE CATEGORY_ID = ?)";
     $params[] = $category;
     $types .= "i";
 }
@@ -184,8 +184,17 @@ SELECT
 
 FROM product p
 
-LEFT JOIN category c 
-    ON p.CATEGORY_ID = c.CATEGORY_ID
+-- category list subquery (a product can belong to multiple categories)
+LEFT JOIN (
+    SELECT 
+        pc.PRODUCT_ID,
+        GROUP_CONCAT(c.CATEGORY_NAME SEPARATOR ', ') AS CATEGORY_NAME
+    FROM product_category pc
+    JOIN category c ON pc.CATEGORY_ID = c.CATEGORY_ID
+    WHERE c.IS_DELETED = 0
+    GROUP BY pc.PRODUCT_ID
+) c
+    ON p.PRODUCT_ID = c.PRODUCT_ID
 
 -- stock summary subquery
 LEFT JOIN (
@@ -209,7 +218,7 @@ LEFT JOIN (
     SELECT 
         PRODUCT_ID,
         GROUP_CONCAT(
-            CONCAT(VARIANT_SIZE, ':', VARIANT_STOCK) 
+            CONCAT(VARIANT_LABEL, ':', VARIANT_STOCK) 
             SEPARATOR '|'
         ) AS variant_list
     FROM product_variant
@@ -521,7 +530,7 @@ function buildUrl($page,$search,$status,$category,$stock,$rating,$limit,$sort,$o
                                 </td>
 
                                 <td class="category">
-                                    <?php echo htmlspecialchars($row['CATEGORY_NAME']) ?>
+                                    <?php echo htmlspecialchars($row['CATEGORY_NAME'] ?? 'Uncategorized') ?>
                                 </td>
 
                                 <td class="variant">

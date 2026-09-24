@@ -45,6 +45,9 @@ $full_addr_str = implode(', ', $full_addr);
           <li><a href="membership.php">Membership</a></li>
           <li><a href="Wishlist.php">Wishlist</a></li>
           <li><a href="voucher.php">Voucher</a></li>
+          <li><a href="shopping_cart.php">Shopping Cart</a></li>
+          <li><a href="topup.php">Top Up</a></li>
+          <li><a href="order_history.php">Order History</a></li>
         </ul>
       </div>
       <div class="footer-col contact">

@@ -60,7 +60,7 @@ foreach ($parent_categories as $parent) {
     <title>All Categories</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/header.css?v=8.0">
     <link rel="stylesheet" href="css/footer.css?v=7.0">
     <style>
         :root {

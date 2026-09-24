@@ -195,23 +195,6 @@
                <span class="sidebar-text">Order</span>
                <span class="sub-sidebar-btn">▶</span>
             </a>
-
-            <ul class="sub-sidebar-menu">
-
-               <li class="<?= $current_page == 'manage_custom_request.php' ? 'sub-active' : '' ?>">
-                  <a href="manage_custom_request.php">
-                     <i class="bi bi-palette sidebar-icon"></i><br>
-                     <span class="sidebar-text">Customization request</span>
-                  </a>
-               </li>
-
-               <li class="<?= $current_page == 'manage_refund_request.php' ? 'sub-active' : '' ?>">
-                  <a href="manage_refund_request.php">
-                     <i class="bi bi-cash-coin sidebar-icon"></i><br>
-                     <span class="sidebar-text">Refund requests</span>
-                  </a>
-               </li>
-            </ul>
          </li>
 
          <li class="<?= $current_page == 'manage_delivery.php' ? 'active' : '' ?>">

@@ -65,20 +65,19 @@ function get_variant_row($conn, $variant_id) {
  * Helper: fetch add-ons for a cart item / buynow item via product_addon.
  * Each row in cart_item_addon points to a PRODUCT_ADDON_ID, which in turn
  * points to an ADDON_PRODUCT_ID (+ optional ADDON_VARIANT_ID if the addon
- * product has variants). ADDON_PRICE on product_addon overrides the
- * variant/product price when set.
+ * product has variants). Addon price is always taken from the addon's own
+ * product/variant price (SALE_PRICE if set, else VARIANT_PRICE) — since any
+ * product can become another product's addon, it should be priced the same
+ * way it would if bought on its own. ADDON_PRICE is NOT used to determine price.
  */
 function get_addons_for_cart_item($conn, $cart_item_id) {
     $cart_item_id = intval($cart_item_id);
     $sql = "SELECT cia.CART_ITEM_ADDON_ID, cia.QUANTITY, cia.PRODUCT_ADD_ON_ID,
-                   pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID, pa.ADDON_PRICE,
-                   ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME,
-                   apv.VARIANT_LABEL AS ADDON_VARIANT_LABEL,
-                   apv.VARIANT_PRICE AS ADDON_VARIANT_PRICE
+                   pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                   ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
             FROM cart_item_addon cia
             JOIN product_addon pa ON cia.PRODUCT_ADD_ON_ID = pa.PRODUCT_ADDON_ID
             JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
-            LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
             WHERE cia.CART_ITEM_ID = $cart_item_id
               AND pa.IS_DELETED = 0
               AND ap.IS_DELETED = 0";
@@ -86,25 +85,55 @@ function get_addons_for_cart_item($conn, $cart_item_id) {
 
     $addons = [];
     while ($row = mysqli_fetch_assoc($res)) {
-        
-        // ADDON_PRICE overrides; otherwise fall back to the variant price
-        $unit_price = ($row['ADDON_PRICE'] !== null)
-            ? floatval($row['ADDON_PRICE'])
-            : floatval($row['ADDON_VARIANT_PRICE']);
+
+        // Always price the addon from its own product's variant, not ADDON_PRICE
+        $variant = get_addon_variant_row($conn, $row['ADDON_PRODUCT_ID'], $row['ADDON_VARIANT_ID']);
+
+        $unit_price    = 0;
+        $variant_label = '';
+        if ($variant) {
+            $unit_price    = (!empty($variant['SALE_PRICE'])) ? floatval($variant['SALE_PRICE']) : floatval($variant['VARIANT_PRICE']);
+            $variant_label = $variant['VARIANT_LABEL'];
+        }
 
         $display_name = $row['ADDON_PRODUCT_NAME'];
-        if (!empty($row['ADDON_VARIANT_LABEL'])) {
-            $display_name .= ' - ' . $row['ADDON_VARIANT_LABEL'];
+        if (!empty($variant_label)) {
+            $display_name .= ' - ' . $variant_label;
         }
 
         $addons[] = [
-            'PRODUCT_ADDON_ID' => $row['PRODUCT_ADDON_ID'],
+            'PRODUCT_ADDON_ID' => $row['PRODUCT_ADD_ON_ID'],
             'ADDON_NAME'       => $display_name,
             'ADDON_PRICE'      => $unit_price,
             'QUANTITY'         => intval($row['QUANTITY']),
         ];
     }
     return $addons;
+}
+
+/**
+ * Helper: fetch the variant row used to price an addon.
+ * If ADDON_VARIANT_ID is set, use that specific variant.
+ * Otherwise fall back to the addon product's first/default variant —
+ * every product must have at least one product_variant row to carry a price,
+ * even products without meaningful options.
+ */
+function get_addon_variant_row($conn, $addon_product_id, $addon_variant_id) {
+    $addon_product_id = intval($addon_product_id);
+
+    if (!empty($addon_variant_id)) {
+        $variant_id = intval($addon_variant_id);
+        $sql = "SELECT VARIANT_ID, VARIANT_LABEL, VARIANT_PRICE, SALE_PRICE
+                FROM product_variant
+                WHERE VARIANT_ID = $variant_id AND IS_DELETED = 0 LIMIT 1";
+    } else {
+        $sql = "SELECT VARIANT_ID, VARIANT_LABEL, VARIANT_PRICE, SALE_PRICE
+                FROM product_variant
+                WHERE PRODUCT_ID = $addon_product_id AND IS_DELETED = 0
+                ORDER BY VARIANT_ID ASC LIMIT 1";
+    }
+    $res = mysqli_query($conn, $sql);
+    return $res ? mysqli_fetch_assoc($res) : null;
 }
 
 //4. buy now mode, read from session
@@ -131,31 +160,33 @@ if (empty($selected_item_ids) && isset($_SESSION['checkout_mode']) && $_SESSION[
             $row['CART_ITEM_ID']     = 'buynow_temp';
             $row['addons']           = [];
 
-            // Process each selected add-on and add to subtotal
+                        // Process each selected add-on and add to subtotal
             foreach (($item['selected_addons'] ?? []) as $product_addon_id) {
                 $product_addon_id = intval(trim($product_addon_id));
                 $aqty = intval($item['addon_qtys'][$product_addon_id] ?? 1);
 
-                $addon_sql = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID, pa.ADDON_PRICE,
-                                     ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME,
-                                     apv.VARIANT_LABEL AS ADDON_VARIANT_LABEL,
-                                     apv.VARIANT_PRICE AS ADDON_VARIANT_PRICE
+                $addon_sql = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                                     ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
                               FROM product_addon pa
                               JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
-                              LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
                               WHERE pa.PRODUCT_ADDON_ID = $product_addon_id
                                 AND pa.IS_DELETED = 0 AND ap.IS_DELETED = 0 LIMIT 1";
                 $addon_res = mysqli_query($conn, $addon_sql);
                 $addon_row = mysqli_fetch_assoc($addon_res);
 
                 if ($addon_row) {
-                    $addon_unit_price = ($addon_row['ADDON_PRICE'] !== null)
-                        ? floatval($addon_row['ADDON_PRICE'])
-                        : floatval($addon_row['ADDON_VARIANT_PRICE']);
+                    // Always price the addon from its own product's variant, not ADDON_PRICE
+                    $variant       = get_addon_variant_row($conn, $addon_row['ADDON_PRODUCT_ID'], $addon_row['ADDON_VARIANT_ID']);
+                    $addon_unit_price = 0;
+                    $variant_label    = '';
+                    if ($variant) {
+                        $addon_unit_price = (!empty($variant['SALE_PRICE'])) ? floatval($variant['SALE_PRICE']) : floatval($variant['VARIANT_PRICE']);
+                        $variant_label    = $variant['VARIANT_LABEL'];
+                    }
 
                     $display_name = $addon_row['ADDON_PRODUCT_NAME'];
-                    if (!empty($addon_row['ADDON_VARIANT_LABEL'])) {
-                        $display_name .= ' - ' . $addon_row['ADDON_VARIANT_LABEL'];
+                    if (!empty($variant_label)) {
+                        $display_name .= ' - ' . $variant_label;
                     }
 
                     $row['addons'][] = [
@@ -235,7 +266,7 @@ if ($tier_q && $tr = mysqli_fetch_assoc($tier_q)) {
     $customer_tier_id = intval($tr['TIER_ID']);
 }
 
-$voucher_sql = "SELECT v.VOUCHER_ID, v.VOUCHER_NAME, v.DISCOUNT_RATE, v.MIN_SPEND,
+$voucher_sql = "SELECT v.VOUCHER_ID, v.VOUCHER_NAME, v.DISCOUNT_RATE, v.DISCOUNT_TYPE, v.MIN_SPEND,
                        v.MAX_USAGE, v.USED_COUNT AS GLOBAL_USED_COUNT, v.PER_USER_LIMIT,
                        v.EXPIRY_DATE AS VOUCHER_EXPIRY, v.START_DATE, v.TIER_ID,
                        cv.USED_COUNT AS CUSTOMER_USED_COUNT,
@@ -312,7 +343,7 @@ if (isset($_POST['save_new_address'])) {
                          (CUSTOMER_ID, FIRST_NAME, LAST_NAME, PHONE, ADDRESS_LINE, CITY, POSTCODE, STATE, IS_DEFAULT)
                          VALUES ('$customer_id','$fname','$lname','$phone','$addr','$city','$post','$state', 0)");
 
-    $address_saved_flag = true;
+    echo "<script>alert('New address saved successfully!');</script>";
 
     // Refresh address list
     $address_result = mysqli_query($conn, "SELECT * FROM address WHERE CUSTOMER_ID = $customer_id ORDER BY ADDRESS_ID DESC");
@@ -330,7 +361,7 @@ $bakery_info = $bakery_res ? mysqli_fetch_assoc($bakery_res) : null;
     <title>Checkout</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/header.css?v=8.0">
     <link rel="stylesheet" href="css/footer.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -793,55 +824,34 @@ $bakery_info = $bakery_res ? mysqli_fetch_assoc($bakery_res) : null;
             font-family: 'Poppins', sans-serif;
         }
 
-        /* Added address popup & Voucher popup matching payment.php */
-        .modal-overlay,
-        .voucher-popup-overlay {
+        /* Added address popup */
+        .modal-overlay {
             display: none;
             position: fixed;
             z-index: 9999;
-            left: 0; top: 0;
-            width: 100%; height: 100%;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
             background: rgba(27, 42, 60, 0.4);
-            backdrop-filter: blur(3px);
         }
 
         .modal-content {
             background: white;
             width: 480px;
-            max-width: 90%;
             margin: 100px auto;
             padding: 28px 24px;
             border-radius: 20px;
-            border: 1.5px dashed var(--search-border-color);
+            border: 1px solid var(--search-border-color);
             position: relative;
             box-shadow: 0 4px 30px rgba(46, 134, 222, 0.15);
         }
 
         .modal-content h4 {
-            color: var(--font-color);
+            color: var(--main-color);
             font-weight: 700;
             font-family: 'Poppins', sans-serif;
-            font-size: 18px;
             margin-bottom: 20px;
-            text-align: center;
-        }
-
-        .modal-content input.form-control {
-            border-radius: 12px;
-            border: 1px solid var(--search-border-color);
-            background-color: var(--secondary-color);
-            font-family: 'Inter', sans-serif;
-            font-size: 13px;
-            color: var(--font-color);
-            padding: 10px 14px;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .modal-content input.form-control:focus {
-            border-color: var(--main-color);
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(46, 134, 222, 0.15);
-            background-color: white;
         }
 
         .close-modal {
@@ -852,18 +862,25 @@ $bakery_info = $bakery_res ? mysqli_fetch_assoc($bakery_res) : null;
             font-size: 24px;
             color: var(--font2-color);
             transition: color 0.2s;
-            line-height: 1;
         }
 
         .close-modal:hover {
             color: var(--main-color);
         }
 
-        /* Voucher Popup */
+                /* Voucher Popup */
+        .voucher-popup-overlay {
+            display: none;
+            position: fixed;
+            z-index: 9999;
+            left: 0; top: 0;
+            width: 100%; height: 100%;
+            background: rgba(27, 42, 60, 0.4);
+        }
+
         .voucher-popup-box {
             background: white;
             width: 360px;
-            max-width: 90%;
             margin: 160px auto;
             padding: 28px 24px;
             border-radius: 20px;
@@ -1145,15 +1162,20 @@ $bakery_info = $bakery_res ? mysqli_fetch_assoc($bakery_res) : null;
                 <label class="form-label">Promo Code:</label>
                 <div class="voucher-row">
                     <select id="voucher_select" name="voucher_id" class="form-control">
-                        <option value="0" data-rate="0">-- Select Voucher --</option>
+                        <option value="0" data-rate="0" data-type="PERCENTAGE">-- Select Voucher --</option>
                         <?php foreach ($my_vouchers as $v):
                             $selected = ($v['VOUCHER_ID'] == $passed_voucher_id) ? 'selected' : '';
+                            $is_fixed = (($v['DISCOUNT_TYPE'] ?? 'PERCENTAGE') === 'FIXED');
+                            $off_label = $is_fixed
+                                ? 'RM ' . number_format($v['DISCOUNT_RATE'], 2) . ' OFF'
+                                : intval($v['DISCOUNT_RATE']) . '% OFF';
                         ?>
                             <option value="<?php echo $v['VOUCHER_ID']; ?>"
                                     data-rate="<?php echo $v['DISCOUNT_RATE']; ?>"
+                                    data-type="<?php echo $is_fixed ? 'FIXED' : 'PERCENTAGE'; ?>"
                                     data-min="<?php echo htmlspecialchars($v['MIN_SPEND']); ?>"
                                     <?php echo $selected; ?>>
-                                <?php echo htmlspecialchars($v['VOUCHER_NAME']); ?> (<?php echo $v['DISCOUNT_RATE']; ?>% OFF)
+                                <?php echo htmlspecialchars($v['VOUCHER_NAME']); ?> (<?php echo $off_label; ?>)
                             </option>
                         <?php endforeach; ?>
                     </select>
@@ -1236,6 +1258,7 @@ function applyVoucher() {
     var opt      = sel.options[sel.selectedIndex];
     var minSpend = parseFloat(opt.getAttribute('data-min')) || 0;
     var rate     = parseFloat(opt.getAttribute('data-rate')) || 0;
+    var type = opt.getAttribute('data-type') || 'PERCENTAGE';
 
     if (sel.value === '0') {
         showVoucherPopup('No Voucher Selected', 'Please select a voucher first.');
@@ -1254,9 +1277,13 @@ function applyVoucher() {
         return;
     }
 
+    var offText = (type === 'FIXED')
+    ? 'RM ' + rate.toFixed(2) + ' off'
+    : rate + '% off';
+
     showVoucherPopup(
         'Voucher Applied!',
-        'You get <span>' + rate + '% off</span> your order.'
+        'You get <span>' + offText + '</span> your order.'
     );
     updateTotal();
 }
@@ -1366,8 +1393,15 @@ function updateTotal() {
     var selectedOption = voucherSelect.options[voucherSelect.selectedIndex];
     var discountRate   = parseFloat(selectedOption.getAttribute('data-rate')) || 0;
 
-    var minSpend = parseFloat(selectedOption.getAttribute('data-min')) || 0;
-    var discount = (baseSubtotal >= minSpend && discountRate > 0) ? baseSubtotal * (discountRate / 100) : 0;
+    var discountType = selectedOption.getAttribute('data-type') || 'PERCENTAGE';
+    var minSpend     = parseFloat(selectedOption.getAttribute('data-min')) || 0;
+    var discount     = 0;
+
+    if (baseSubtotal >= minSpend && discountRate > 0) {
+        discount = (discountType === 'FIXED')
+            ? Math.min(discountRate, baseSubtotal)
+            : baseSubtotal * (discountRate / 100);
+    }
     var finalTotal = baseSubtotal - discount + shippingFee;
 
     document.getElementById('display-discount').textContent = '- RM ' + discount.toFixed(2);
@@ -1386,7 +1420,7 @@ function validateFormBeforeSubmit() {
     if (method === 'doorstep') {
         var addressId = document.getElementById('address_id').value;
         if (!addressId || addressId === 'new') {
-            showVoucherPopup('Address Required', 'Please select or add a delivery address.');
+            alert('Please select a delivery address.');
             return false;
         }
     }
@@ -1402,9 +1436,6 @@ window.onload = function() {
     }
     onShippingMethodChange();
     updateTotal();
-    <?php if (!empty($address_saved_flag)): ?>
-        showVoucherPopup('Address Saved', 'New address saved successfully!');
-    <?php endif; ?>
 };
 </script>
 <?php include_once 'include/footer.php'; ?>

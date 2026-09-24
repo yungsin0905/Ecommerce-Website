@@ -1,13 +1,12 @@
 <?php
-//error report for debug
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
 
 // 提取不带端口号的主机名 (如 localhost:3000 提取出 localhost)
 $host_name = explode(':', $_SERVER['HTTP_HOST'])[0];
 
 // 这里要判断处理后的 $host_name，而不是原始的 $_SERVER['HTTP_HOST']
 if ($host_name == 'localhost' || $host_name == '127.0.0.1') {
+     ini_set('display_errors', 1);
+    error_reporting(E_ALL);
     // ---------------- 本地 XAMPP 环境 ----------------
     $servername = 'localhost';
     $username   = 'root';
@@ -15,6 +14,9 @@ if ($host_name == 'localhost' || $host_name == '127.0.0.1') {
     $dbname     = 'robot_shop';
 } else {
     // ---------------- cPanel 线上环境 ----------------
+     ini_set('display_errors', 0);
+    ini_set('log_errors', 1);
+    error_reporting(E_ALL);
     $servername = "localhost";
     $username   = "makerklu_wongyungsin";
     $password   = "Wy$173183";
@@ -41,13 +43,14 @@ function assignTierVouchers($conn, $customer_id, $new_tier_id) {
         AND cv.USED_COUNT = 0
     ");
 
-    // sent new tier vouchers
+        // sent new tier vouchers (skip auto-generated monthly rewards, those are per-customer)
     $tier_vouchers = mysqli_query($conn, "
         SELECT VOUCHER_ID FROM voucher
         WHERE TIER_ID = $new_tier_id
         AND VOUCHER_TYPE = 'Tier'
           AND VOUCHER_STATUS = 'Active'
           AND IS_DELETED = 0
+          AND VOUCHER_CODE NOT LIKE 'AUTO-%'
     ");
 
     while ($v = mysqli_fetch_assoc($tier_vouchers)) {
@@ -92,7 +95,7 @@ function sendMail(string $to, string $subject, string $body): bool {
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port       = 587;
 
-        $mail->setFrom('wongyungsin04@gmail.com', 'Cakeology (No-Reply)');
+        $mail->setFrom('wongyungsin04@gmail.com', 'Maker Kluang (No-Reply)');
         $mail->addAddress($to);
 
         $mail->Subject = $subject;

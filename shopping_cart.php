@@ -143,7 +143,7 @@ if ($user_tier_query && $tier_row = mysqli_fetch_assoc($user_tier_query)) {
     $customer_tier_id = intval($tier_row['TIER_ID']);
 }
 
-$voucher_sql = "SELECT v.VOUCHER_ID, v.VOUCHER_NAME, v.DISCOUNT_RATE, v.MIN_SPEND,
+$voucher_sql = "SELECT v.VOUCHER_ID, v.VOUCHER_NAME, v.DISCOUNT_RATE, v.DISCOUNT_TYPE, v.MIN_SPEND,
                        v.MAX_USAGE, v.USED_COUNT AS GLOBAL_USED_COUNT, v.PER_USER_LIMIT,
                        v.EXPIRY_DATE AS VOUCHER_EXPIRY, v.START_DATE, v.TIER_ID,
                        cv.USED_COUNT AS CUSTOMER_USED_COUNT,
@@ -208,7 +208,7 @@ $TOTAL_AMOUNT = $SUB_TOTAL;
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/header.css?v=8.0">
     <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -727,12 +727,19 @@ $TOTAL_AMOUNT = $SUB_TOTAL;
                 <!--Voucher-->
                 <div class="promo-box">
                     <select id="voucher_select" class="promo-input">
-                        <option value="0" data-min="0" data-id="0">-- Select a Voucher --</option>
-                        <?php foreach($my_vouchers as $v): ?>
-                           <option value="<?php echo $v['DISCOUNT_RATE']; ?>" 
+                        <option value="0" data-rate="0" data-type="PERCENTAGE" data-min="0" data-id="0">-- Select a Voucher --</option>
+                        <?php foreach($my_vouchers as $v):
+                            $is_fixed  = (strtoupper($v['DISCOUNT_TYPE'] ?? 'PERCENTAGE') === 'FIXED');
+                            $off_label = $is_fixed
+                                ? 'RM ' . number_format($v['DISCOUNT_RATE'], 2) . ' Off'
+                                : intval($v['DISCOUNT_RATE']) . '% Off';
+                        ?>
+                           <option value="<?php echo $v['VOUCHER_ID']; ?>"
+                                   data-rate="<?php echo $v['DISCOUNT_RATE']; ?>"
+                                   data-type="<?php echo $is_fixed ? 'FIXED' : 'PERCENTAGE'; ?>"
                                    data-min="<?php echo htmlspecialchars($v['MIN_SPEND']); ?>"
                                    data-id="<?php echo $v['VOUCHER_ID']; ?>">
-                                   <?php echo htmlspecialchars($v['VOUCHER_NAME']); ?> (<?php echo $v['DISCOUNT_RATE']; ?>% Off)
+                                   <?php echo htmlspecialchars($v['VOUCHER_NAME']); ?> (<?php echo $off_label; ?>)
                             </option>
                          <?php endforeach; ?>
                     </select>
@@ -754,7 +761,7 @@ $TOTAL_AMOUNT = $SUB_TOTAL;
    <!-- Voucher Popup -->
   <div id="voucherPopup" class="voucher-popup-overlay">
     <div class="voucher-popup-box">
-        <div class="voucher-popup-icon">🎟️</div>
+        <div class="voucher-popup-icon"><i class="bi bi-ticket-perforated-fill" style="color: var(--main-color); font-size: 38px;"></i></div>
         <div class="voucher-popup-title" id="voucherPopupTitle"></div>
         <div class="voucher-popup-msg"  id="voucherPopupMsg"></div>
         <button class="voucher-popup-btn" onclick="closeVoucherPopup()">OK</button>
@@ -872,25 +879,32 @@ document.querySelectorAll('.qty-btn').forEach(button => {
         });
 
         const selectedOption = voucherSelect.options[voucherSelect.selectedIndex];
-        const minSpend = parseFloat(selectedOption.getAttribute('data-min')) || 0;
-        const discountRate = parseFloat(voucherSelect.value) || 0;
+        const minSpend     = parseFloat(selectedOption.getAttribute('data-min'))  || 0;
+        const discountRate = parseFloat(selectedOption.getAttribute('data-rate')) || 0;
+        const discountType = selectedOption.getAttribute('data-type') || 'PERCENTAGE';
+        const voucherId    = selectedOption.getAttribute('data-id') || selectedOption.value || '0';
         
-        if (voucherSelect.value === "0") {
+        if (voucherId === "0" || voucherSelect.value === "0") {
            showVoucherPopup('No Voucher Selected', 'Please select a voucher first.');
            return;
         }
         if (subtotal < minSpend) {
             showVoucherPopup(
-            'Voucher Cannot Be Applied',
-            'Minimum spend required: <span>RM ' + minSpend.toFixed(2) + '</span><br>' +
-            'Your current subtotal: <span>RM ' + subtotal.toFixed(2) + '</span><br><br>' +
-            'Please add more items or select a different voucher.'
+                'Voucher Cannot Be Applied',
+                'Minimum spend required: <span>RM ' + minSpend.toFixed(2) + '</span><br>' +
+                'Your current subtotal: <span>RM ' + subtotal.toFixed(2) + '</span><br><br>' +
+                'Please add more items or select a different voucher.'
             );
             voucherSelect.value = "0";
             updateTotalSummary();
             return;
         }
-        showVoucherPopup('Voucher Applied!', 'You get <span>' + discountRate + '% off</span> your order.');
+
+        var offText = (discountType === 'FIXED')
+            ? 'RM ' + discountRate.toFixed(2) + ' off'
+            : discountRate + '% off';
+
+        showVoucherPopup('Voucher Applied!', 'You get <span>' + offText + '</span> your order.');
         updateTotalSummary();
     });
 
@@ -919,17 +933,21 @@ document.querySelectorAll('.qty-btn').forEach(button => {
         });
 
         const selectedOption = voucherSelect.options[voucherSelect.selectedIndex];
+        const selectedVoucherId = selectedOption.getAttribute('data-id') || selectedOption.value || 0;
         
         // sync the selected Voucher ID to the hidden input for POST submission to checkout.php
-        hiddenVoucherInput.value = selectedOption.getAttribute('data-id') || 0;
+        hiddenVoucherInput.value = (selectedVoucherId !== '0') ? selectedVoucherId : 0;
 
         let discount = 0;
-        const minSpend = parseFloat(selectedOption.getAttribute('data-min')) || 0;
-        const discountRate = parseFloat(voucherSelect.value) || 0;
+        const minSpend     = parseFloat(selectedOption.getAttribute('data-min'))  || 0;
+        const discountRate = parseFloat(selectedOption.getAttribute('data-rate')) || 0;
+        const discountType = selectedOption.getAttribute('data-type') || 'PERCENTAGE';
 
         // if the minimum spending requirement is met, apply the discount
         if (subtotal >= minSpend && discountRate > 0) {
-            discount = subtotal * (discountRate / 100);
+            discount = (discountType === 'FIXED')
+                ? Math.min(discountRate, subtotal)
+                : subtotal * (discountRate / 100);
         } else if (discountRate > 0) {
             // if the quantity is reduced during editing, causing the amount to be insufficient, automatically revoke the voucher
             voucherSelect.value = "0";

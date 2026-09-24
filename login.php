@@ -108,41 +108,44 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['google_token'])) {
     $email = mysqli_real_escape_string($conn, $_POST['email']);
     $password = $_POST['password'];
 
-    //1. search user trhough email
+        //1. search user trhough email
     $sql = "SELECT * FROM customer WHERE EMAIL = '$email'";
     $result = $conn-> query($sql);
 
-    if ($result && $result->num_rows > 0) {
-    $user = $result->fetch_assoc();
-
     //verify enter empty field
-      if (empty(trim($email)) || empty(trim($password))) {
-          $registrationMessage = "All fields are required!";
-      
-      //verify email format
-      } else if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-      $registrationMessage = "Invalid email format!";
-      
-      //verify user is already suspended
-      } else if ($user['STATUS'] === 'Suspended') {
-          $registrationMessage = "Your account is suspended. Please contact support.";
-      //verify the password is enter space value
-      } else if (str_contains($password, ' ')) {
-      $registrationMessage = "Password cannot contain spaces!";
-      
-      //verify password correction
-      } else if (!password_verify($password, $user['PASSWORD'])) {
-          $registrationMessage = "Invalid password. Please try again.";
-      } else {
-          $_SESSION['CUSTOMER_ID'] = $user['CUSTOMER_ID'];
-          $_SESSION['CUSTOMER_NAME'] = $user['CUSTOMER_NAME'];
-          $_SESSION['email'] = $user['EMAIL'];
-          session_write_close();
-          header("Location: index.php");
-          exit();
-      }
+    if (empty(trim($email)) || empty(trim($password))) {
+        $registrationMessage = "All fields are required!";
+
+    //verify email format
+    } else if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $registrationMessage = "Invalid email format!";
+
+    //verify the password is enter space value
+    } else if (str_contains($password, ' ')) {
+        $registrationMessage = "Password cannot contain spaces!";
+
+    } else if ($result && $result->num_rows > 0) {
+        $user = $result->fetch_assoc();
+
+        //verify user is already suspended
+        if ($user['STATUS'] === 'Suspended') {
+            $registrationMessage = "Your account is suspended. Please contact support.";
+
+        //verify password correction - email exists but password wrong
+        } else if (!password_verify($password, $user['PASSWORD'])) {
+            $registrationMessage = "Incorrect email or password.";
+        } else {
+            $_SESSION['CUSTOMER_ID'] = $user['CUSTOMER_ID'];
+            $_SESSION['CUSTOMER_NAME'] = $user['CUSTOMER_NAME'];
+            $_SESSION['email'] = $user['EMAIL'];
+            session_write_close();
+            header("Location: index.php");
+            exit();
+        }
     } else {
-        $registrationMessage = "Email not found. Please sign up first.";
+        // Email doesn't exist - same message as wrong password, so we don't
+        // reveal whether an email is registered
+        $registrationMessage = "Incorrect email or password.";
     }
 }
 
@@ -157,7 +160,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !isset($_POST['google_token'])) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/header.css?v=8.0">
     <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 

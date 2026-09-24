@@ -16,23 +16,21 @@ $search = $_GET['search'] ?? '';
 $status = $_GET['status'] ?? '';
 $fromDate = $_GET['fromDate'] ?? '';
 $toDate = $_GET['toDate'] ?? '';
-$dateType = $_GET['dateType'] ?? 'req';
 
 // sorting
-$sort = $_GET['sort'] ?? 'REQ_DELIVERY';
+$sort = $_GET['sort'] ?? 'ACT_DELIVERY';
 $order = $_GET['order'] ?? 'DESC';
 $allowedOrder = ['ASC', 'DESC'];
-$allowedSort = ['CUSTOMER_NAME','REQ_DELIVERY','ACT_DELIVERY'];
+$allowedSort = ['CUSTOMER_NAME','ACT_DELIVERY'];
 
 /* mapping UI → SQL */
 $sortMap = [
     'CUSTOMER_NAME' => 'o.CUSTOMER_NAME_SNAPSHOT',
-    'REQ_DELIVERY' => 'o.DELIVERY_DATE',
     'ACT_DELIVERY' => "TIMESTAMP(s.SHIPPING_DATE, s.SHIPPING_TIME)"
 ];
 
 if (!in_array($sort, $allowedSort)) {
-    $sort = 'REQ_DELIVERY';
+    $sort = 'ACT_DELIVERY';
 }
 if (!in_array($order, $allowedOrder)) {
     $order = 'DESC';
@@ -98,10 +96,6 @@ if ($status != '') {
     $types .= "s";
 }
 
-$dateField = ($dateType === 'req') 
-    ? "o.DELIVERY_DATE" 
-    : "s.SHIPPING_DATE";
-
 if ($fromDate != '') {
     $where[] = "$dateField >= ?";
     $params[] = $fromDate;
@@ -138,13 +132,9 @@ $listSql = "
 SELECT 
     o.ORDER_ID,
     o.ORDER_NO,
-    o.ORDER_TYPE,
 
     o.CUSTOMER_NAME_SNAPSHOT,
     o.DELIVERY_ADDRESS_SNAPSHOT,
-
-    o.DELIVERY_DATE,
-    o.DELIVERY_SLOT_SNAPSHOT,
 
     s.SHIPPING_ID,
     s.DELIVERY_STATUS,
@@ -175,7 +165,7 @@ $stmtList->execute();
 $result = $stmtList->get_result();
 
 // Build URL (or Pagination & Sorting Links)
-function buildUrl($page,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$dateType){
+function buildUrl($page,$search,$status,$fromDate,$toDate,$limit,$sort,$order){
     return "?" . http_build_query([
         "page"=>$page,
         "search"=>$search,
@@ -184,8 +174,7 @@ function buildUrl($page,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$d
         "toDate"=>$toDate,
         "limit"=>$limit,
         "sort"=>$sort,
-        "order"=>$order,
-        "dateType"=>$dateType
+        "order"=>$order
     ]);
 }
 ?>
@@ -263,10 +252,6 @@ function buildUrl($page,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$d
                     </select>
 
                     <label>Date Range:</label>
-                    <select name="dateType" class="mgmt-filter" onchange="this.form.submit()">
-                      <option value="req" <?= ($dateType ?? 'req')=='req'?'selected':'' ?>>Requested Delivery</option>
-                      <option value="act" <?= ($dateType ?? 'act')=='act'?'selected':'' ?>>Actual Delivery</option>
-                    </select>
 
                     <!-- Date Range Filters -->
                     <input type="date" name="fromDate" class="mgmt-filter" 
@@ -291,7 +276,6 @@ function buildUrl($page,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$d
                         <label><input type="checkbox" checked data-col="orderNo">Order No</label>
                         <label><input type="checkbox" checked data-col="customer">Customer</label>
                         <label><input type="checkbox" checked data-col="address">Address</label>
-                        <label><input type="checkbox" checked data-col="requestedDeliveryTime">Req. Delivery</label>
                         <label><input type="checkbox" checked data-col="actualDeliveryTime">Act. Delivery</label>
                         <label><input type="checkbox" checked data-col="status">Status</label>
                         <button id="reset-col-btn" title="Reset Columns">Reset</button>
@@ -321,26 +305,12 @@ function buildUrl($page,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$d
 
                             <th class="address">Address</th>
 
-                            <th class="requestedDeliveryTime">
-                                <a class="sort-link <?= $sort=='REQ_DELIVERY' ? 'active-sort '.strtolower($order) : '' ?>"
-                                    href="<?= buildUrl(1,$search,$status,$fromDate,$toDate,$limit,'REQ_DELIVERY',
-                                    ($sort=='REQ_DELIVERY' && $order=='ASC') ? 'DESC' : 'ASC', $dateType) ?>">
-
-                                   <span>Req. Delivery</span>
-
-                                    <span class="sort-icons">
-                                       <span class="up"><i class="bi bi-chevron-up"></i></span>
-                                       <span class="down"><i class="bi bi-chevron-down"></i></span>
-                                    </span>
-                                </a>
-                            </th>
-
                             <th class="actualDeliveryTime">
                                 <a class="sort-link <?= $sort=='ACT_DELIVERY' ? 'active-sort '.strtolower($order) : '' ?>"
                                     href="<?= buildUrl(1,$search,$status,$fromDate,$toDate,$limit,'ACT_DELIVERY',
                                     ($sort=='ACT_DELIVERY' && $order=='ASC') ? 'DESC' : 'ASC', $dateType) ?>">
 
-                                   <span>Act. Delivery</span>
+                                   <span>Delivery Date</span>
 
                                     <span class="sort-icons">
                                        <span class="up"><i class="bi bi-chevron-up"></i></span>
@@ -371,13 +341,7 @@ function buildUrl($page,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$d
                                 <td class="address">
                                     <?= nl2br(htmlspecialchars($row['DELIVERY_ADDRESS_SNAPSHOT'])) ?>
                                 </td>
-
-                                <td class="requestedDeliveryTime">
-                                    <?= date("d M Y", strtotime($row['DELIVERY_DATE'])) ?>
-                                    <br>
-                                    <small><?= htmlspecialchars($row['DELIVERY_SLOT_SNAPSHOT']) ?></small>
-                                </td>
-
+                                
                                 <td class="actualDeliveryTime">
                                     <?php 
                                         $date = $row['SHIPPING_DATE'];
@@ -473,14 +437,14 @@ function buildUrl($page,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$d
                     <div class="page-controls">
                     <!-- Prev -->
                     <?php if ($page > 1): ?>
-                        <a class="page-btn" href="<?= buildUrl($page-1,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$dateType) ?>">
+                        <a class="page-btn" href="<?= buildUrl($page-1,$search,$status,$fromDate,$toDate,$limit,$sort,$order,) ?>">
                             ◀ Prev
                         </a>
                     <?php endif; ?>
 
                     <!-- First page -->
                     <?php if ($start > 1): ?>
-                        <a class="page-num" href="<?= buildUrl(1,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$dateType) ?>">1</a>
+                        <a class="page-num" href="<?= buildUrl(1,$search,$status,$fromDate,$toDate,$limit,$sort,$order) ?>">1</a>
 
                         <?php if ($start > 2): ?>
                             <span class="page-ellipsis">...</span>
@@ -489,7 +453,7 @@ function buildUrl($page,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$d
 
                     <!-- Middle pages -->
                     <?php for ($i = $start; $i <= $end; $i++): ?>
-                        <a class="page-num <?= $i==$page ? 'active' : '' ?>" href="<?= buildUrl($i,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$dateType) ?>">
+                        <a class="page-num <?= $i==$page ? 'active' : '' ?>" href="<?= buildUrl($i,$search,$status,$fromDate,$toDate,$limit,$sort,$order) ?>">
                             <?= $i ?>
                         </a>
                     <?php endfor; ?>
@@ -501,14 +465,14 @@ function buildUrl($page,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$d
                             <span class="page-ellipsis">...</span>
                         <?php endif; ?>
 
-                        <a class="page-num" href="<?= buildUrl($totalPages,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$dateType) ?>">
+                        <a class="page-num" href="<?= buildUrl($totalPages,$search,$status,$fromDate,$toDate,$limit,$sort,$order) ?>">
                             <?= $totalPages ?>
                         </a>
                     <?php endif; ?>
 
                     <!-- Next -->
                     <?php if ($page < $totalPages): ?>
-                        <a class="page-btn" href="<?= buildUrl($page+1,$search,$status,$fromDate,$toDate,$limit,$sort,$order,$dateType) ?>">
+                        <a class="page-btn" href="<?= buildUrl($page+1,$search,$status,$fromDate,$toDate,$limit,$sort,$order) ?>">
                             Next ▶
                         </a>
                     <?php endif; ?>

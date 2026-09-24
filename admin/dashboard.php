@@ -32,66 +32,32 @@ $sql = "SELECT AVG(RATING) AS avgRating FROM review";
 $result = $conn->query($sql);
 $avgRating = round($result->fetch_assoc()['avgRating'] ?? 0, 1);
 
-// 5. STOCK ALERT (variant<=5, add-on<=5 == low stock; variant=0, add-on=0 == out of stock)
+// 5. STOCK ALERT (variant<=5 == low stock; variant=0 == out of stock)
 $sql = "
 SELECT 
-    SUM(CASE WHEN type = 'VARIANT' AND stock <= 5 AND stock > 0 THEN 1 ELSE 0 END) AS lowVariant,
-    SUM(CASE WHEN type = 'VARIANT' AND stock = 0 THEN 1 ELSE 0 END) AS outVariant,
-    SUM(CASE WHEN type = 'ADD_ON' AND stock <= 5 AND stock > 0 THEN 1 ELSE 0 END) AS lowAddon,
-    SUM(CASE WHEN type = 'ADD_ON' AND stock = 0 THEN 1 ELSE 0 END) AS outAddon
-FROM (
-    SELECT VARIANT_STOCK AS stock, 'VARIANT' AS type FROM product_variant WHERE IS_DELETED = 0
-    UNION ALL
-    SELECT ADD_ON_STOCK AS stock, 'ADD_ON' AS type FROM add_on WHERE IS_DELETED = 0
-) AS stock_table
+    SUM(CASE WHEN VARIANT_STOCK <= 5 AND VARIANT_STOCK > 0 THEN 1 ELSE 0 END) AS lowVariant,
+    SUM(CASE WHEN VARIANT_STOCK = 0 THEN 1 ELSE 0 END) AS outVariant
+FROM product_variant
+WHERE IS_DELETED = 0
 ";
 $result    = $conn->query($sql);
 $row       = $result->fetch_assoc();
 $lowVariant = $row['lowVariant'] ?? 0;
 $outVariant = $row['outVariant'] ?? 0;
-$lowAddon   = $row['lowAddon']   ?? 0;
-$outAddon   = $row['outAddon']   ?? 0;
 
 // ORDER OVERVIEW (only count orders that are still processing or ready, completed & refunded order will not be counted in overview, as they are already done)
 $today = date('Y-m-d');
 
-// TODAY ORDERS — split by Normal / Custom
-$sameDayNormal = $conn->query("
-    SELECT COUNT(*) AS c FROM orders
-    WHERE DATE(DELIVERY_DATE) = '$today'
-    AND ORDER_TYPE = 'Normal'
-    AND ORDER_STATUS IN ('PROCESSING','READY')
-")->fetch_assoc()['c'];
 
-$sameDayCustom = $conn->query("
-    SELECT COUNT(*) AS c FROM orders
-    WHERE DATE(DELIVERY_DATE) = '$today'
-    AND ORDER_TYPE = 'Custom'
-    AND ORDER_STATUS IN ('PROCESSING','READY')
-")->fetch_assoc()['c'];
+// OVERDUE DELIVERY (orders that are READY but still PENDING shipment for more than 2 days)
+$OVERDUE_DAYS = 2; // adjust this threshold as needed
 
-// FUTURE ORDERS — split by Normal / Custom
-$preOrderNormal = $conn->query("
-    SELECT COUNT(*) AS c FROM orders
-    WHERE DELIVERY_DATE > CURDATE()
-    AND ORDER_TYPE = 'Normal'
-    AND ORDER_STATUS IN ('PROCESSING','READY')
-")->fetch_assoc()['c'];
-
-$preOrderCustom = $conn->query("
-    SELECT COUNT(*) AS c FROM orders
-    WHERE DELIVERY_DATE > CURDATE()
-    AND ORDER_TYPE = 'Custom'
-    AND ORDER_STATUS IN ('PROCESSING','READY')
-")->fetch_assoc()['c'];
-
-// TODAY DELIVERY （orders with delivery date = today, status = ready, delivery status = pending）
-$todayDelivery = $conn->query("
+$overdueDelivery = $conn->query("
     SELECT COUNT(*) AS c FROM orders o
     JOIN shipping s ON o.SHIPPING_ID = s.SHIPPING_ID
-    WHERE o.DELIVERY_DATE = CURDATE()
-    AND o.ORDER_STATUS = 'READY'
+    WHERE o.ORDER_STATUS = 'READY'
     AND s.DELIVERY_STATUS = 'PENDING'
+    AND o.CREATED_AT <= NOW() - INTERVAL $OVERDUE_DAYS DAY
 ")->fetch_assoc()['c'] ?? 0;
 
 // QUICK OVERVIEW counts
@@ -99,17 +65,6 @@ $todayDelivery = $conn->query("
 $pendingOrders        = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE ORDER_STATUS='PROCESSING'")->fetch_assoc()['c'];
 // Ready delivery where order status is ready, but delivery status still pending, means still waiting for delivery, so count in quick overview.
 $pendingDelivery      = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE ORDER_STATUS='READY'")->fetch_assoc()['c'];
-// Custom request with status pending
-$pendingCustom        = $conn->query("SELECT COUNT(*) AS c FROM custom WHERE STATUS='Pending'")->fetch_assoc()['c'];
-// Refund request with status pending
-$pendingRefundRequest = $conn->query("SELECT COUNT(*) AS c FROM refund_request WHERE REQUEST_STATUS='PENDING'")->fetch_assoc()['c'];
-// Refund that already approved by admin, but still waiting for finance team to process, so count in quick overview.
-$pendingRefund        = $conn->query("
-    SELECT COUNT(*) AS c FROM refund r
-    JOIN refund_request rr ON r.REQUEST_ID = rr.REQUEST_ID
-    WHERE r.REFUND_STATUS = 'PENDING'
-    AND rr.REQUEST_STATUS = 'APPROVED'
-")->fetch_assoc()['c'] ?? 0;
 
 // LOW STOCK TABLE
 $lowStock = $conn->query("
@@ -117,9 +72,6 @@ $lowStock = $conn->query("
     FROM product_variant v
     JOIN product p ON p.PRODUCT_ID = v.PRODUCT_ID
     WHERE v.IS_DELETED = 0 AND v.VARIANT_STOCK <= 5 AND p.IS_DELETED = 0
-    UNION
-    SELECT ADD_ON_ID, ADD_ON_NAME, NULL, ADD_ON_STOCK, 'ADD_ON'
-    FROM add_on WHERE IS_DELETED = 0 AND ADD_ON_STOCK <= 5
 ");
 
 // QUICK ORDERS (Processing)
@@ -132,31 +84,12 @@ $quickOrders = $conn->query("
 
 // QUICK DELIVERY (Pending)
 $quickDelivery = $conn->query("
-    SELECT o.ORDER_ID, o.ORDER_NO, o.DELIVERY_DATE, 
-           o.DELIVERY_SLOT_SNAPSHOT, s.DELIVERY_STATUS
-    FROM shipping s
-    JOIN orders o ON o.SHIPPING_ID = s.SHIPPING_ID
-    WHERE s.DELIVERY_STATUS = 'PENDING'
-    AND o.ORDER_STATUS != 'REFUNDED'
-    ORDER BY o.DELIVERY_DATE ASC
+    SELECT o.ORDER_ID, o.ORDER_NO, o.CREATED_AT, s.DELIVERY_STATUS, s.SHIPPING_METHOD
+    FROM shipping s JOIN orders o ON o.SHIPPING_ID = s.SHIPPING_ID
+    WHERE s.DELIVERY_STATUS = 'PENDING' AND o.ORDER_STATUS != 'REFUNDED'
+    ORDER BY o.CREATED_AT ASC
 ");
 
-// REFUND REQUESTS (Pending)
-$refundRequests = $conn->query("
-    SELECT r.REQUEST_ID, r.REASON, r.REQUEST_STATUS, r.REQUEST_DATE, o.ORDER_NO
-    FROM refund_request r
-    JOIN orders o ON r.ORDER_ID = o.ORDER_ID
-    WHERE r.REQUEST_STATUS = 'PENDING'
-    ORDER BY r.REQUEST_DATE DESC
-");
-
-// CUSTOM REQUESTS (Pending)
-$customRequests = $conn->query("
-    SELECT RECIPIENT_NAME, STYLE_NAME_SNAPSHOT, BUDGET, STATUS, CUSTOM_ID
-    FROM custom
-    WHERE STATUS = 'Pending'
-    ORDER BY CREATED_AT DESC
-");
 
 // VOUCHERS (Currently Active Period)
 $vouchers = $conn->query("
@@ -189,39 +122,6 @@ while ($row = $result->fetch_assoc()) {
 }
 $salesLabels = array_reverse($salesLabels);
 $salesData   = array_reverse($salesData);
-
-// CALENDAR EVENTS
-$sql = "
-    SELECT ORDER_NO, DELIVERY_DATE, ORDER_STATUS, CREATED_AT, DELIVERY_SLOT_SNAPSHOT
-    FROM orders 
-    WHERE DELIVERY_DATE IS NOT NULL
-";
-$result = $conn->query($sql);
-$events = [];
-while ($row = $result->fetch_assoc()) {
-    if ($row['ORDER_STATUS'] == 'PROCESSING' || $row['ORDER_STATUS'] == 'READY') {
-
-        $slotTime = $row['DELIVERY_SLOT_SNAPSHOT'];
-
-        // if order is ready, means ready to deliver on delivery date, so show truck icon. if still processing, means still preparing.
-        // completed & refunded order will not be shown on calendar.
-        if ($row['ORDER_STATUS'] == 'PROCESSING') {
-            $prefix = "🎂 Processing";
-            $color = "#9fdfff"; 
-        } else {
-            $prefix = "🚚 Ready";
-            $color = "#60ffca"; 
-        }
-
-        $events[] = [
-            "title" => $prefix . ": " . $row['ORDER_NO'] . " [" . $slotTime . "]",
-            "start" => $row['DELIVERY_DATE'],
-            "backgroundColor" => $color,
-            "borderColor" => $color,
-            "textColor" => "#ffffff"
-        ];
-    }
-}
 
 // TOP 5 SELLING PRODUCT CHART
 $topLabels = [];
@@ -338,12 +238,6 @@ body {
     margin-bottom: 15px; 
 }
 
-/* CALENDAR */
-.calendar-card { 
-    grid-column: 1; 
-    grid-row: 1 / span 2; 
-}
-
 .fc .fc-button {
     background-color: var(--primary-dark) !important;
     border: none !important;
@@ -387,9 +281,6 @@ body {
     margin-bottom: 0 !important;
 }
 
-.refund-box { 
-    border-left: 3px solid var(--warning); 
-}
 
 /* ORDER OVERVIEW */
 .production-wrapper {
@@ -464,12 +355,10 @@ body {
 .low-stock     { grid-column: 2; grid-row: 4; }
 .quick-orders  { grid-column: 1; grid-row: 4; }
 .quick-delivery{ grid-column: 1; grid-row: 5; }
-.refund-card   { grid-column: 2; grid-row: 5; }
-.custom-card   { grid-column: 2; grid-row: 6; }
 .voucher-card  { grid-column: 1; grid-row: 6; }
 
 .sales-trend, .low-stock, .quick-orders,
-.quick-delivery, .refund-card, .voucher-card { 
+.quick-delivery, .voucher-card { 
     min-height: 320px; 
 }
 
@@ -575,11 +464,6 @@ table th, table td {
                     <span class="low-stock-text">Low <?= $lowVariant ?></span>
                     <span class="out-stock">Out <?= $outVariant ?></span>
                 </div>
-                <div class="stock-row">
-                    <span class="stock-title">Addon</span>
-                    <span class="low-stock-text">Low <?= $lowAddon ?></span>
-                    <span class="out-stock">Out <?= $outAddon ?></span>
-                </div>
             </div>
         </div>
 
@@ -587,54 +471,22 @@ table th, table td {
 
     <div class="dashboard-grid">
 
-        <!-- CALENDAR -->
-        <div class="card calendar-card">
-            <div class="card-title">🎂 Calendar</div>
-            <div id="calendar"></div>
-        </div>
+       
 
         <!-- QUICK OVERVIEW -->
         <div class="card quick-view">
             <div class="card-title">Quick Overview</div>
             <div class="quick-item">🟡 Processing Orders: <?= $pendingOrders ?></div>
             <div class="quick-item">🚚 Ready Delivery: <?= $pendingDelivery ?></div>
-            <div class="quick-item">🎂 Custom Request: <?= $pendingCustom ?></div>
-            <div class="quick-item">💸 Refund Request: <?= $pendingRefundRequest ?></div>
-            <div class="quick-item refund-box">💸 Wait for Refund: <?= $pendingRefund ?></div>
         </div>
 
         <div class="production-wrapper">
 
-            <!-- ORDERS OVERVIEW -->
-            <div class="card production-overview">
-                <div class="card-title">Orders Overview</div>
-
-                <h4>TODAY ORDERS</h4>
-                <div class="overview-row">
-                    <span class="overview-label">Normal</span>
-                    <strong><?= $sameDayNormal ?></strong>
-                </div>
-                <div class="overview-row">
-                    <span class="overview-label">Custom</span>
-                    <strong><?= $sameDayCustom ?></strong>
-                </div>
-
-                <h4>FUTURE ORDERS</h4>
-                <div class="overview-row">
-                    <span class="overview-label">Normal</span>
-                    <strong><?= $preOrderNormal ?></strong>
-                </div>
-                <div class="overview-row">
-                    <span class="overview-label">Custom</span>
-                    <strong><?= $preOrderCustom ?></strong>
-                </div>
-            </div>
-
             <!-- DELIVERY ALERT -->
             <div class="card delivery-alert-card">
-                <div class="card-title"><span class="delivery-text">🚚 Today Delivery</span></div>
-                <div class="delivery-number"><?= $todayDelivery ?></div>
-                <div class="delivery-text">delivery(s) scheduled today</div>
+                <div class="card-title"><span class="delivery-text">⏰ Overdue Shipments</span></div>
+                <div class="delivery-number"><?= $overdueDelivery ?></div>
+                <div class="delivery-text">order(s) waiting over <?= $OVERDUE_DAYS ?> day(s) to ship</div>
             </div>
 
         </div>
@@ -712,13 +564,13 @@ table th, table td {
             <div class="table-scroll">
                 <table>
                     <tr>
-                        <th>Order No</th><th>Delivery Date</th><th>Time</th><th>Status</th><th>Action</th>
+                        <th>Order No</th><th>Order Date</th><th>Shipping Method</th><th>Status</th><th>Action</th>
                     </tr>
                     <?php while ($row = $quickDelivery->fetch_assoc()): ?>
                     <tr>
                         <td><?= htmlspecialchars($row['ORDER_NO']) ?></td>
-                        <td><?= htmlspecialchars($row['DELIVERY_DATE']) ?></td>
-                        <td><?= htmlspecialchars($row['DELIVERY_SLOT_SNAPSHOT']) ?></td>
+                        <td><?= htmlspecialchars(date('d M Y, H:i', strtotime($row['CREATED_AT']))) ?></td>
+                        <td><?= htmlspecialchars($row['SHIPPING_METHOD']) ?></td>
                         <td><?= htmlspecialchars($row['DELIVERY_STATUS']) ?></td>
                         <td>
                             <a href="view_delivery.php?order_id=<?= $row['ORDER_ID'] ?>" class="view-btn">View</a>
@@ -729,52 +581,7 @@ table th, table td {
             </div>
         </div>
 
-        <!-- REFUND REQUESTS -->
-        <div class="card refund-card">
-            <div class="card-title">Refund Requests (Pending)</div>
-            <div class="table-scroll">
-                <table>
-                    <tr>
-                        <th>Order No</th><th>Reason</th><th>Request Date</th><th>Status</th><th>Action</th>
-                    </tr>
-                    <?php while ($row = $refundRequests->fetch_assoc()): ?>
-                    <tr>
-                        <td><?= htmlspecialchars($row['ORDER_NO']) ?></td>
-                        <td><?= htmlspecialchars(substr($row['REASON'], 0, 40)) ?></td>
-                        <td><?= htmlspecialchars($row['REQUEST_DATE']) ?></td>
-                        <td><?= htmlspecialchars($row['REQUEST_STATUS']) ?></td>
-                        <td>
-                            <a href="process_refund_request.php?request_id=<?= $row['REQUEST_ID'] ?>" class="view-btn">View</a>
-                        </td>
-                    </tr>
-                    <?php endwhile; ?>
-                </table>
-            </div>
-        </div>
-
-        <!-- CUSTOM REQUESTS -->
-        <div class="card custom-card">
-            <div class="card-title">Custom Request (Pending)</div>
-            <div class="table-scroll">
-                <table>
-                    <tr>
-                        <th>Recipient</th><th>Cake</th><th>Budget</th><th>Status</th><th>Action</th>
-                    </tr>
-                    <?php while ($row = $customRequests->fetch_assoc()): ?>
-                    <tr>
-                        <td><?= htmlspecialchars($row['RECIPIENT_NAME']) ?></td>
-                        <td><?= htmlspecialchars($row['STYLE_NAME_SNAPSHOT']) ?></td>
-                        <td>RM <?= htmlspecialchars($row['BUDGET']) ?></td>
-                        <td><?= htmlspecialchars($row['STATUS']) ?></td>
-                        <td>
-                            <a href="process_custom.php?id=<?= $row['CUSTOM_ID'] ?>" class="view-btn">View</a>
-                        </td>
-                    </tr>
-                    <?php endwhile; ?>
-                </table>
-            </div>
-        </div>
-
+        
         <!-- VOUCHERS -->
         <div class="card voucher-card">
             <div class="card-title">Active Vouchers</div>
@@ -835,26 +642,6 @@ new Chart(document.getElementById('topProductChart'), {
             }
         }
     }
-});
-</script>
-
-<!-- CALENDAR -->
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-
-    window.calendar = new FullCalendar.Calendar(
-        document.getElementById('calendar'),
-        {
-            initialView: 'dayGridMonth',
-            events: <?= json_encode($events) ?>,
-            height: 'auto',
-            eventClick: function(info) {
-                alert(info.event.title);
-            }
-        }
-    );
-
-    calendar.render();
 });
 </script>
 

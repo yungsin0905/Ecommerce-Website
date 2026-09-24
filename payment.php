@@ -79,6 +79,32 @@ $state            = $_POST['state']            ?? '';
 $SHIPPING_FEE = 0.00;
 $cart_items = [];
 $SUB_TOTAL  = 0;
+
+/**
+ * Helper: fetch the variant row used to price an addon.
+ * If ADDON_VARIANT_ID is set, use that specific variant.
+ * Otherwise fall back to the addon product's first/default variant —
+ * addon price always comes from the addon's own product/variant, never
+ * from a fixed price field (product_addon has no ADDON_PRICE column).
+ */
+function get_addon_variant_row($conn, $addon_product_id, $addon_variant_id) {
+    $addon_product_id = intval($addon_product_id);
+
+    if (!empty($addon_variant_id)) {
+        $variant_id = intval($addon_variant_id);
+        $sql = "SELECT VARIANT_ID, VARIANT_LABEL, VARIANT_PRICE, SALE_PRICE
+                FROM product_variant
+                WHERE VARIANT_ID = $variant_id AND IS_DELETED = 0 LIMIT 1";
+    } else {
+        $sql = "SELECT VARIANT_ID, VARIANT_LABEL, VARIANT_PRICE, SALE_PRICE
+                FROM product_variant
+                WHERE PRODUCT_ID = $addon_product_id AND IS_DELETED = 0
+                ORDER BY VARIANT_ID ASC LIMIT 1";
+    }
+    $res = mysqli_query($conn, $sql);
+    return $res ? mysqli_fetch_assoc($res) : null;
+}
+
 // 6a. Buy Now item (single product purchased directly, bypassing the cart)
 if ($is_buynow && isset($_SESSION['buynow_item'])) {
     $bn         = $_SESSION['buynow_item'];
@@ -109,31 +135,30 @@ if ($is_buynow && isset($_SESSION['buynow_item'])) {
             $row['addons']        = [];
             $addon_total_for_item = 0;
 
-            foreach (($bn['addon_qtys'] ?? []) as $addon_id => $addon_qty) {
-                $addon_id  = intval($addon_id);
-                $addon_qty = intval($addon_qty);
-                if ($addon_id <= 0 || $addon_qty <= 0) continue;
+                foreach (($bn['selected_addons'] ?? []) as $addon_id) {
+                $addon_id  = intval(trim($addon_id));
+                if ($addon_id <= 0) continue;
+                $addon_qty = intval($bn['addon_qtys'][$addon_id] ?? 1);
+                if ($addon_qty <= 0) continue;
 
-                $addon_sql = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE AS OVERRIDE_PRICE,
-                                     ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME,
-                                     apv.VARIANT_LABEL AS ADDON_VARIANT_LABEL,
-                                     apv.VARIANT_PRICE AS ADDON_VARIANT_PRICE,
-                                     apv.SALE_PRICE AS ADDON_VARIANT_SALE_PRICE
+                $addon_sql = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                                     ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
                               FROM product_addon pa
                               JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
-                              LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
                               WHERE pa.PRODUCT_ADDON_ID = $addon_id
                                 AND pa.IS_DELETED = 0";
                 $addon_result = mysqli_query($conn, $addon_sql);
                 $addon        = $addon_result ? mysqli_fetch_assoc($addon_result) : null;
 
                 if ($addon) {
-                    if ($addon['OVERRIDE_PRICE'] !== null) {
-                        $addon_unit_price = floatval($addon['OVERRIDE_PRICE']);
-                    } elseif (!empty($addon['ADDON_VARIANT_SALE_PRICE']) && floatval($addon['ADDON_VARIANT_SALE_PRICE']) > 0) {
-                        $addon_unit_price = floatval($addon['ADDON_VARIANT_SALE_PRICE']);
-                    } else {
-                        $addon_unit_price = floatval($addon['ADDON_VARIANT_PRICE'] ?? 0);
+                    // Always price the addon from its own product's variant, not a fixed override price
+                    $variant = get_addon_variant_row($conn, $addon['ADDON_PRODUCT_ID'], $addon['ADDON_VARIANT_ID']);
+
+                    $addon_unit_price = 0;
+                    $addon['ADDON_VARIANT_LABEL'] = '';
+                    if ($variant) {
+                        $addon_unit_price = (!empty($variant['SALE_PRICE'])) ? floatval($variant['SALE_PRICE']) : floatval($variant['VARIANT_PRICE']);
+                        $addon['ADDON_VARIANT_LABEL'] = $variant['VARIANT_LABEL'];
                     }
 
                     $addon['ADDON_QTY']   = $addon_qty;
@@ -174,16 +199,12 @@ if ($is_buynow && isset($_SESSION['buynow_item'])) {
                           : floatval($row['VARIANT_PRICE']);
             $row['final_unit_price'] = $unit_price;
 
-            $addon_sql = "SELECT cia.CART_ITEM_ADDON_ID, cia.QUANTITY AS ADDON_QTY,
-                                 pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE AS OVERRIDE_PRICE,
-                                 ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME,
-                                 apv.VARIANT_LABEL AS ADDON_VARIANT_LABEL,
-                                 apv.VARIANT_PRICE AS ADDON_VARIANT_PRICE,
-                                 apv.SALE_PRICE AS ADDON_VARIANT_SALE_PRICE
+                        $addon_sql = "SELECT cia.CART_ITEM_ADDON_ID, cia.QUANTITY AS ADDON_QTY,
+                                 pa.PRODUCT_ADDON_ID, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                                 ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
                           FROM cart_item_addon cia
                           JOIN product_addon pa ON cia.PRODUCT_ADD_ON_ID = pa.PRODUCT_ADDON_ID
                           JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
-                          LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
                           WHERE cia.CART_ITEM_ID = " . intval($row['CART_ITEM_ID']);
             $addon_result = mysqli_query($conn, $addon_sql);
 
@@ -192,12 +213,14 @@ if ($is_buynow && isset($_SESSION['buynow_item'])) {
 
             if ($addon_result) {
                 while ($addon = mysqli_fetch_assoc($addon_result)) {
-                    if ($addon['OVERRIDE_PRICE'] !== null) {
-                        $addon_unit_price = floatval($addon['OVERRIDE_PRICE']);
-                    } elseif (!empty($addon['ADDON_VARIANT_SALE_PRICE']) && floatval($addon['ADDON_VARIANT_SALE_PRICE']) > 0) {
-                        $addon_unit_price = floatval($addon['ADDON_VARIANT_SALE_PRICE']);
-                    } else {
-                        $addon_unit_price = floatval($addon['ADDON_VARIANT_PRICE'] ?? 0);
+                    // Always price the addon from its own product's variant, not a fixed override price
+                    $variant = get_addon_variant_row($conn, $addon['ADDON_PRODUCT_ID'], $addon['ADDON_VARIANT_ID']);
+
+                    $addon_unit_price = 0;
+                    $addon['ADDON_VARIANT_LABEL'] = '';
+                    if ($variant) {
+                        $addon_unit_price = (!empty($variant['SALE_PRICE'])) ? floatval($variant['SALE_PRICE']) : floatval($variant['VARIANT_PRICE']);
+                        $addon['ADDON_VARIANT_LABEL'] = $variant['VARIANT_LABEL'];
                     }
 
                     $addon['UNIT_PRICE']   = $addon_unit_price;
@@ -224,7 +247,7 @@ if ($tier_q && $tr = mysqli_fetch_assoc($tier_q)) {
     $customer_tier_id = intval($tr['TIER_ID']);
 }
 
-$voucher_sql = "SELECT v.VOUCHER_ID, v.VOUCHER_NAME, v.DISCOUNT_RATE, v.MIN_SPEND,
+$voucher_sql = "SELECT v.VOUCHER_ID, v.VOUCHER_NAME, v.DISCOUNT_RATE, v.DISCOUNT_TYPE, v.MIN_SPEND,
                        v.MAX_USAGE, v.USED_COUNT AS GLOBAL_USED_COUNT, v.PER_USER_LIMIT,
                        v.EXPIRY_DATE AS VOUCHER_EXPIRY, v.START_DATE, v.TIER_ID,
                        cv.USED_COUNT AS CUSTOMER_USED_COUNT,
@@ -281,7 +304,10 @@ $DISCOUNT_AMOUNT = 0.00;
 if ($passed_voucher_id > 0) {
     foreach ($my_vouchers as $v) {
         if (intval($v['VOUCHER_ID']) === $passed_voucher_id && $v['is_eligible']) {
-            $DISCOUNT_AMOUNT = $SUB_TOTAL * (floatval($v['DISCOUNT_RATE']) / 100);
+            $is_fixed = (strtoupper($v['DISCOUNT_TYPE'] ?? 'PERCENTAGE') === 'FIXED');
+            $DISCOUNT_AMOUNT = $is_fixed
+                ? min(floatval($v['DISCOUNT_RATE']), $SUB_TOTAL)
+                : $SUB_TOTAL * (floatval($v['DISCOUNT_RATE']) / 100);
             break;
         }
     }
@@ -298,7 +324,7 @@ $TOTAL_AMOUNT = $SUB_TOTAL - $DISCOUNT_AMOUNT + $SHIPPING_FEE;
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/header.css?v=8.0">
     <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
@@ -1061,18 +1087,23 @@ $TOTAL_AMOUNT = $SUB_TOTAL - $DISCOUNT_AMOUNT + $SHIPPING_FEE;
                 <label class="form-label"><strong>Promo Code:</strong></label>
                 <div class="voucher-row">
                     <select id="voucher_select" class="promo-input">
-                        <option value="0" data-rate="0" data-min="0">-- Select Voucher --</option>
+                        <option value="0" data-rate="0" data-type="PERCENTAGE" data-min="0">-- Select Voucher --</option>
 
                         <?php foreach ($my_vouchers as $v):
                            $v_selected = (intval($v['VOUCHER_ID']) === $passed_voucher_id) ? 'selected' : '';
-                           $label_text = $v['VOUCHER_NAME'] . ' (' . $v['DISCOUNT_RATE'] . '% OFF)';
+                           $is_fixed   = (strtoupper($v['DISCOUNT_TYPE'] ?? 'PERCENTAGE') === 'FIXED');
+                           $off_label  = $is_fixed
+                               ? 'RM ' . number_format($v['DISCOUNT_RATE'], 2) . ' OFF'
+                               : intval($v['DISCOUNT_RATE']) . '% OFF';
+                           $label_text = $v['VOUCHER_NAME'] . ' (' . $off_label . ')';
                            if (!$v['is_eligible']) {
                                $label_text .= ' — Min spend RM ' . number_format($v['MIN_SPEND'], 2);
                            }
                         ?>
                            <option value="<?php echo $v['VOUCHER_ID']; ?>"
                                    data-rate="<?php echo $v['DISCOUNT_RATE']; ?>"
-                                   data-min="<?php echo $v['MIN_SPEND']; ?>"
+                                   data-type="<?php echo $is_fixed ? 'FIXED' : 'PERCENTAGE'; ?>"
+                                   data-min="<?php echo htmlspecialchars($v['MIN_SPEND']); ?>"
                                    <?php echo $v_selected; ?>>
                                 <?php echo htmlspecialchars($label_text); ?>
                            </option>
@@ -1108,7 +1139,7 @@ $TOTAL_AMOUNT = $SUB_TOTAL - $DISCOUNT_AMOUNT + $SHIPPING_FEE;
 <!-- Voucher Popup -->
 <div id="voucherPopup" class="voucher-popup-overlay">
     <div class="voucher-popup-box">
-        <div class="voucher-popup-icon"><i class="bi bi-ticket-perforated-fill" style="color: var(--accent-blue); font-size: 38px;"></i></div>
+        <div class="voucher-popup-icon"><i class="bi bi-ticket-perforated-fill" style="color: var(--main-color); font-size: 38px;"></i></div>
         <div class="voucher-popup-title" id="voucherPopupTitle"></div>
         <div class="voucher-popup-msg"  id="voucherPopupMsg"></div>
         <button class="voucher-popup-btn" onclick="closeVoucherPopup()">OK</button>
@@ -1157,18 +1188,16 @@ function closeVoucherPopup() {
     document.getElementById('voucherPopup').style.display = 'none';
 }
 
-// Voucher application handler
+// Voucher application handler (mirrors checkout.php's behaviour)
 function applyVoucher() {
     var sel      = document.getElementById('voucher_select');
     var opt      = sel.options[sel.selectedIndex];
     var minSpend = parseFloat(opt.getAttribute('data-min')) || 0;
     var rate     = parseFloat(opt.getAttribute('data-rate')) || 0;
+    var type     = opt.getAttribute('data-type') || 'PERCENTAGE';
 
     if (sel.value === '0') {
-        showVoucherPopup(
-            'No Voucher Selected',
-            'Please select a voucher first.'
-        );
+        showVoucherPopup('No Voucher Selected', 'Please select a voucher first.');
         return;
     }
 
@@ -1184,23 +1213,30 @@ function applyVoucher() {
         return;
     }
 
+    var offText = (type === 'FIXED')
+        ? 'RM ' + rate.toFixed(2) + ' off'
+        : rate + '% off';
+
     showVoucherPopup(
         'Voucher Applied!',
-        'You get <span>' + rate + '% off</span> your order.'
+        'You get <span>' + offText + '</span> your order.'
     );
     updateTotal();
 }
 
 // Main function to update UI totals and check wallet feasibility
 function updateTotal() {
-    var sel  = document.getElementById('voucher_select');
-    var opt  = sel.options[sel.selectedIndex];
+    var sel          = document.getElementById('voucher_select');
+    var opt          = sel.options[sel.selectedIndex];
     var discountRate = parseFloat(opt.getAttribute('data-rate')) || 0;
-    var minSpend = parseFloat(opt.getAttribute('data-min'))  || 0;
+    var discountType = opt.getAttribute('data-type') || 'PERCENTAGE';
+    var minSpend     = parseFloat(opt.getAttribute('data-min'))  || 0;
 
     var discount = 0;
     if (BASE_SUBTOTAL >= minSpend && discountRate > 0) {
-        discount = BASE_SUBTOTAL * (discountRate / 100);
+        discount = (discountType === 'FIXED')
+            ? Math.min(discountRate, BASE_SUBTOTAL)
+            : BASE_SUBTOTAL * (discountRate / 100);
     } else if (discountRate > 0) {
         sel.value = '0';
         discount  = 0;
@@ -1208,7 +1244,7 @@ function updateTotal() {
 
     var finalTotal = BASE_SUBTOTAL - discount + SHIPPING_FEE;
 
-    //Update displays
+    // Update displays
     document.getElementById('display-discount').textContent = '- RM ' + discount.toFixed(2);
     document.getElementById('display-total').textContent    = 'RM '   + finalTotal.toFixed(2);
 

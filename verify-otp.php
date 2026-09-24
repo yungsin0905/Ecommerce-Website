@@ -86,6 +86,36 @@ function sendOTP(mysqli $conn, string $email, string $type = 'register'): bool {
     return sendMail($email, $subject, $body);
 }
 
+// Insert a welcome notification for a newly registered customer
+function sendWelcomeNotification(mysqli $conn, int $customer_id): void {
+    // Get bakery name from bakery_info table
+    $bakeryName = 'our bakery';
+    $result = mysqli_query($conn, "SELECT SHOP_NAME FROM bakery_info LIMIT 1");
+    if ($result && $row = mysqli_fetch_assoc($result)) {
+        $bakeryName = $row['NAME'];
+    }
+
+    $message = "Welcome to {$bakeryName}! Thanks for signing up — we're so happy to have you.";
+
+    // Create the notification record
+    $stmt = $conn->prepare(
+        "INSERT INTO notification (TYPE, REF_ID, MESSAGE, CREATED_AT) VALUES ('Welcome', ?, ?, NOW())"
+    );
+    $stmt->bind_param('is', $customer_id, $message);
+    $stmt->execute();
+    $notif_id = $conn->insert_id;
+    $stmt->close();
+
+    // Link it to the customer so it shows up in their notification list
+    $stmt = $conn->prepare(
+        "INSERT INTO customer_notification (CUSTOMER_ID, NOTIF_ID, IS_READ) VALUES (?, ?, 0)"
+    );
+    $stmt->bind_param('ii', $customer_id, $notif_id);
+    $stmt->execute();
+    $stmt->close();
+}
+
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Resend OTP
@@ -178,6 +208,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   // assign tier vouchers
                   assignTierVouchers($conn, $customer_id, 1);
 
+                  // send welcome notification, same wording/logic as Google sign-up
+                  $bakery_res = $conn->query("SELECT SHOP_NAME FROM bakery_info LIMIT 1");
+                  $bakery_row = $bakery_res->fetch_assoc();
+                  $shop_name  = $bakery_row['SHOP_NAME'] ?? 'our store';
+                  notify_customer($conn, $customer_id, 'System', null,
+                    "Welcome to $shop_name, {$pending['full_name']}! We're excited to have you join our community of makers and tech enthusiasts.");
+
+
                    // pending registration data no longer needed, clear it from session
                   unset($_SESSION['pending_customer']);
                 }
@@ -205,7 +243,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/header.css?v=8.0">
     <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 

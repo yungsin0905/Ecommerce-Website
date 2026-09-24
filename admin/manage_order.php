@@ -14,16 +14,15 @@ $pageTitle = "Manage Orders";
 // search, filter input
 $search = $_GET['search'] ?? '';
 $status = $_GET['status'] ?? '';
-$type = $_GET['type'] ?? '';
 $fromDate = $_GET['fromDate'] ?? '';
 $toDate = $_GET['toDate'] ?? '';
-$dateType = $_GET['dateType'] ?? 'created';
+
 
 // sorting 
 $sort = $_GET['sort'] ?? 'CREATED_AT';
 $order = $_GET['order'] ?? 'DESC';
 
-$allowedSort = ['CUSTOMER_NAME','REQ_DELIVERY','TOTAL_AMOUNT','CREATED_AT'];
+$allowedSort = ['CUSTOMER_NAME','TOTAL_AMOUNT','CREATED_AT'];
 $allowedOrder = ['ASC', 'DESC'];
 if (!in_array($sort, $allowedSort)) {
     $sort = 'CREATED_AT';
@@ -34,7 +33,6 @@ if (!in_array($order, $allowedOrder)) {
 
 $sortMap = [
     'CUSTOMER_NAME' => 'o.CUSTOMER_NAME_SNAPSHOT',
-    'REQ_DELIVERY' => 'o.DELIVERY_DATE',
     'TOTAL_AMOUNT' => 'o.TOTAL_AMOUNT',
     'CREATED_AT' => 'o.CREATED_AT'
 ];
@@ -62,7 +60,6 @@ function getCount($conn, $sql, $type = "", $param = null) {
 
 $totalProcessing = getCount($conn, "SELECT COUNT(*) AS o FROM `orders` WHERE ORDER_STATUS = 'PROCESSING'")['o'];
 $totalReady = getCount($conn, "SELECT COUNT(*) AS o FROM `orders` WHERE ORDER_STATUS = 'READY'")['o'];
-$totalRefunded = getCount($conn, "SELECT COUNT(*) AS o FROM `orders` WHERE ORDER_STATUS = 'REFUNDED'")['o'];
 
 // search, filter conditions
 $where = [];
@@ -83,40 +80,17 @@ if ($status != '') {
     $types .= "s";
 }
 
-if ($type != '') {
-    $where[] = "o.ORDER_TYPE = ?";
-    $params[] = $type;
-    $types .= "s";
-}
 
-/* Date Range Filters */
-$dateField = ($dateType === 'delivery')
-    ? "o.DELIVERY_DATE"
-    : "o.CREATED_AT";
-
+/* Date Range Filters (always based on order creation date) */
 if ($fromDate != '') {
-
-    if ($dateType === 'delivery') {
-        $where[] = "$dateField >= ?";
-        $params[] = $fromDate;
-    } else {
-        $where[] = "$dateField >= ?";
-        $params[] = $fromDate . " 00:00:00";
-    }
-
+    $where[] = "o.CREATED_AT >= ?";
+    $params[] = $fromDate . " 00:00:00";
     $types .= "s";
 }
 
 if ($toDate != '') {
-
-    if ($dateType === 'delivery') {
-        $where[] = "$dateField <= ?";
-        $params[] = $toDate;
-    } else {
-        $where[] = "$dateField <= ?";
-        $params[] = $toDate . " 23:59:59";
-    }
-
+    $where[] = "o.CREATED_AT <= ?";
+    $params[] = $toDate . " 23:59:59";
     $types .= "s";
 }
 
@@ -148,29 +122,12 @@ if ($page > $totalPages) {
 $listSql = "
 SELECT 
     o.*,
-    COUNT(DISTINCT oi.ORDER_ITEM_ID) AS ITEMS,
-
-    rr.REQUEST_ID,
-    rr.REASON AS REFUND_REASON,
-    r.REFUND_AMOUNT
+    COUNT(DISTINCT oi.ORDER_ITEM_ID) AS ITEMS
 
 FROM orders o
 
 LEFT JOIN order_item oi 
     ON o.ORDER_ID = oi.ORDER_ID
-
-LEFT JOIN refund_request rr
-    ON rr.REQUEST_ID = (
-        SELECT rr2.REQUEST_ID
-        FROM refund_request rr2
-        WHERE rr2.ORDER_ID = o.ORDER_ID
-        AND rr2.REQUEST_STATUS = 'APPROVED'
-        ORDER BY rr2.CREATED_AT DESC
-        LIMIT 1
-    )
-
-LEFT JOIN refund r
-    ON rr.REQUEST_ID = r.REQUEST_ID
 
 $whereSql
 
@@ -189,12 +146,11 @@ $stmtList->execute();
 $result = $stmtList->get_result();
 
 // Build URL (or Pagination & Sorting Links)
-function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $sort, $order) {
+function buildUrl($page, $search, $status, $fromDate, $toDate, $limit, $sort, $order) {
     return "?" . http_build_query([
         "page" => $page,
         "search" => $search,
         "status" => $status,
-        "type" => $type,
         "fromDate" => $fromDate,
         "toDate" => $toDate,
         "limit" => $limit,
@@ -233,10 +189,7 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
     color: #666666;
 }
 
-.status-refunded {
-    background: #fff0e6;
-    color: #994d00;
-}
+
 
 /* textarea max length */
 .text-cont {
@@ -267,11 +220,6 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                     <p class="mgmt-card-title">Ready</p>
                     <p class="mgmt-card-value"><?= htmlspecialchars($totalReady) ?></p>
                 </div>
-
-                <div class="mgmt-sum-card">
-                    <p class="mgmt-card-title">Refunded</p>
-                    <p class="mgmt-card-value"><?= htmlspecialchars($totalRefunded) ?></p>
-                </div>
             </div>
 
             <div class="mgmt-ctrl">
@@ -290,27 +238,11 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                       <option value="Processing" <?php echo ($status == 'Processing') ? 'selected' : ''; ?>>Processing</option>
                       <option value="Ready" <?php echo ($status == 'Ready') ? 'selected' : '' ?>>Ready</option>
                       <option value="Completed" <?php echo ($status == 'Completed') ? 'selected' : '' ?>>Completed</option>
-                      <option value="Refunded" <?php echo ($status == 'Refunded') ? 'selected' : '' ?>>Refunded</option>
-                    </select>
-
-                    <select name="type" class="mgmt-filter" onchange="this.form.submit()">
-                      <option value="">All Types</option>
-                      <option value="Normal" <?php echo ($type == 'Normal') ? 'selected' : ''; ?>>Normal</option>  
-                      <option value="Custom" <?php echo ($type == 'Custom') ? 'selected' : ''; ?>>Custom</option>
+                      
                     </select>
 
                     <!-- Date Range Filters -->
                     <label>Date Range:</label>
-
-                    <select name="dateType" class="mgmt-filter" onchange="this.form.submit()">
-                        <option value="created" <?= ($dateType == 'created') ? 'selected' : '' ?>>
-                            Order Created
-                        </option>
-
-                        <option value="delivery" <?= ($dateType == 'delivery') ? 'selected' : '' ?>>
-                            Req. Delivery
-                        </option>
-                    </select>
 
                     <input type="date" name="fromDate" class="mgmt-filter" 
                         value="<?= htmlspecialchars($fromDate) ?>" 
@@ -320,7 +252,7 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                         value="<?= htmlspecialchars($toDate) ?>" 
                         onchange="this.form.submit()">
 
-                    <?php if (!empty($search) || !empty($status) || !empty($type) || !empty($fromDate) || !empty($toDate)): ?>
+                    <?php if (!empty($search) || !empty($status) || !empty($fromDate) || !empty($toDate)): ?>
                         <button type="button" id="clear-ctrl-btn" title="Clear Search and Filter Input">Clear</button>
                     <?php endif; ?>
                 </form>
@@ -335,9 +267,7 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                         <label><input type="checkbox" checked data-col="customer">Customer</label>
                         <label><input type="checkbox" checked data-col="items">Items</label>  <!-- total num of products purchased -->
                         <label><input type="checkbox" checked data-col="total">Total</label>
-                        <label><input type="checkbox" checked data-col="reqDelivery">Req. Delivery</label>
                         <label><input type="checkbox" checked data-col="status">Status</label>
-                        <label><input type="checkbox" checked data-col="type">Type</label>
                         <label><input type="checkbox" checked data-col="since">Since</label>
                         <button id="reset-col-btn" title="Reset Columns">Reset</button>
                     </div>
@@ -352,7 +282,7 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
 
                             <th class="customer">
                                 <a class="sort-link <?= $sort=='CUSTOMER_NAME' ? 'active-sort '.strtolower($order) : '' ?>"
-                                    href="<?= buildUrl(1,$search,$status,$type,$fromDate,$toDate,$limit,'CUSTOMER_NAME',
+                                    href="<?= buildUrl(1,$search,$status,$fromDate,$toDate,$limit,'CUSTOMER_NAME',
                                    ($sort=='CUSTOMER_NAME' && $order=='ASC') ? 'DESC' : 'ASC') ?>">
 
                                    <span>Customer</span>
@@ -364,13 +294,12 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                                 </a>
                             </th>
 
-                            <th class="type">Type</th>
 
                             <th class="items">Items</th>
                       
                             <th class="total">
                                 <a class="sort-link <?= $sort=='TOTAL_AMOUNT' ? 'active-sort '.strtolower($order) : '' ?>"
-                                    href="<?= buildUrl(1,$search,$status,$type,$fromDate,$toDate,$limit,'TOTAL_AMOUNT',
+                                    href="<?= buildUrl(1,$search,$status,$fromDate,$toDate,$limit,'TOTAL_AMOUNT',
                                    ($sort=='TOTAL_AMOUNT' && $order=='ASC') ? 'DESC' : 'ASC') ?>">
 
                                    <span>Total</span>
@@ -381,26 +310,13 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                                     </span>
                                 </a>
                             </th>
-                            
-                            <th class="reqDelivery">
-                                <a class="sort-link <?= $sort=='REQ_DELIVERY' ? 'active-sort '.strtolower($order) : '' ?>"
-                                    href="<?= buildUrl(1,$search,$status,$type,$fromDate,$toDate,$limit,'REQ_DELIVERY',
-                                    ($sort=='REQ_DELIVERY' && $order=='ASC') ? 'DESC' : 'ASC') ?>">
-
-                                   <span>Req. Delivery</span>
-
-                                    <span class="sort-icons">
-                                       <span class="up"><i class="bi bi-chevron-up"></i></span>
-                                       <span class="down"><i class="bi bi-chevron-down"></i></span>
-                                    </span>
-                                </a>
-                            </th>
+                        
 
                             <th class="status">Status</th>
 
                             <th class="since">
                                 <a class="sort-link <?= $sort=='CREATED_AT' ? 'active-sort '.strtolower($order) : '' ?>"
-                                    href="<?= buildUrl(1,$search,$status,$type,$fromDate,$toDate,$limit,'CREATED_AT',
+                                    href="<?= buildUrl(1,$search,$status,$fromDate,$toDate,$limit,'CREATED_AT',
                                     ($sort=='CREATED_AT' && $order=='ASC') ? 'DESC' : 'ASC') ?>">
 
                                     <span>Since</span>
@@ -418,9 +334,7 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
 
                     <tbody>
                         <?php while($row = $result->fetch_assoc()): ?>
-                            <?php
-                                $hasRequest = !empty($row['REQUEST_ID']);
-                            ?>
+
 
                             <tr>
                                 <td class="orderNo">
@@ -431,40 +345,19 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                                     <?php echo htmlspecialchars($row['CUSTOMER_NAME_SNAPSHOT']); ?>
                                 </td>
 
-                                 <td class="type">
-                                    <span class="badge type-<?= strtolower($row['ORDER_TYPE']) ?>">
-                                        <?= htmlspecialchars($row['ORDER_TYPE']); ?>
-                                    </span>
-                                </td>
-
-                                <td class="items">
-                                    <?php if ($row['ORDER_TYPE'] == 'Custom'): ?>
-                                        Custom Order
-                                    <?php else: ?>
-                                        <?= $row['ITEMS'] ?? 0 ?> item<?= $row['ITEMS'] == 1 ? '' : 's' ?>
-                                    <?php endif; ?>
+                                 <td class="items">
+                                    <?= $row['ITEMS'] ?? 0 ?> item<?= $row['ITEMS'] == 1 ? '' : 's' ?>
                                 </td>
                        
                                 <td class="total">
                                     RM <?php echo htmlspecialchars($row['TOTAL_AMOUNT']); ?>
                                 </td>
 
-                                <td class="reqDelivery">
-                                    <?= date("d M Y", strtotime($row['DELIVERY_DATE'])) ?>
-                                    <br>
-                                    <small><?= htmlspecialchars($row['DELIVERY_SLOT_SNAPSHOT']) ?></small>
-                                </td>
-
                                 <td class="status">
                                     <span class="badge status-<?= strtolower($row['ORDER_STATUS']) ?>">
                                         <?= htmlspecialchars($row['ORDER_STATUS']); ?>
                                     </span>
-    
-                                    <?php if ($row['ORDER_STATUS'] === 'REFUNDED'): ?>
-                                        <div style="font-size: 10px; color: #28a745; margin-top: 4px;">
-                                            <i class="bi bi-check-circle-fill"></i> Refund Successful
-                                        </div>
-                                    <?php endif; ?>
+
                                 </td>
 
                                 <td class="since">
@@ -485,11 +378,6 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                                             <button class="update-btn" onclick="openStatusModal(<?= $row['ORDER_ID'] ?>, '<?= $row['ORDER_STATUS'] ?>')">
                                                 <i class="bi bi-arrow-repeat"></i>Update Status
                                             </button>
-
-                                            <button class="cancel-btn" onclick="openRefundModal(<?= $row['ORDER_ID'] ?>,'<?= $row['ORDER_NO'] ?>',<?= $row['TOTAL_AMOUNT'] ?>,<?= $row['REQUEST_ID'] ? 'true' : 'false' ?>,<?= $row['REFUND_AMOUNT'] ?? 0 ?>)">
-                                                <i class="bi bi-x-circle-fill"></i>
-                                                <?= !empty($row['REQUEST_ID']) ? 'Refund Order' : 'Cancel Order' ?>
-                                           </button> <!--when click automatically open refund-->
                                         </div>
                                     </div>
                                 </td>
@@ -511,7 +399,6 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                             <option value="PROCESSING">Processing</option>
                             <option value="READY">Ready</option>
                             <option value="COMPLETED">Completed</option>
-                            <option value="REFUNDED">Refunded</option>
                         </select>
 
                         <div>
@@ -522,51 +409,11 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                 </div>
             </div>
 
-            <!-- Cancel & Refund Pop Up -->
-            <div id="refundModal" class="modal">
-                <div class="modal-content">
-                    
-                    <h3 id="refundModalTitle">Cancel & Refund Order</h3>
-
-                    <p id="refundInfo" style="font-size: 14px; color: #666; margin-bottom: 15px;"></p>
-        
-                    <form id="refundForm">
-                        <div id="refundAmountSection" style="margin-bottom:15px;">
-
-                            <label>Refund Amount (RM):</label>
-
-                            <input type="number" name="refund_amount" id="refundAmount" step="0.01" min="0" 
-                                    style="
-                                       width:100%;
-                                       padding:8px;
-                                       margin-top:5px;
-                                       border-radius:5px;
-                                       border:1px solid #ccc;
-                                    "
-                            >
-
-                        </div>
-                        <input type="hidden" name="order_id" id="refundOrderId">
-            
-                        <label for="refundReason">Reason:</label>
-                        <textarea name="reason" id="refundReason" maxlength="300" required style="width: 100%; height: 80px; margin-top: 5px; padding: 8px; border-radius: 5px; border: 1px solid #ccc;"></textarea>
-                        <div class="text-cont">
-                            <span class="text-hint">Maximum 300 characters</span>
-                        </div>
-                        <div>
-                            <button type="submit" class="save-btn">Confirm Refund</button>
-                            <button type="button" onclick="closeRefundModal()">Cancel</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
             <div class="mgmt-pagination">
                 <div class="limit-selector">
                     <form method="GET">
                         <input type="hidden" name="search" value="<?= htmlspecialchars($search) ?>">
                         <input type="hidden" name="status" value="<?= htmlspecialchars($status) ?>">
-                        <input type="hidden" name="type" value="<?= htmlspecialchars($type) ?>">
                         <input type="hidden" name="fromDate" value="<?= htmlspecialchars($fromDate) ?>">
                         <input type="hidden" name="toDate" value="<?= htmlspecialchars($toDate) ?>">
                         <input type="hidden" name="dateType" value="<?= htmlspecialchars($dateType) ?>">
@@ -592,14 +439,14 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                     <div class="page-controls">
                     <!-- Prev -->
                     <?php if ($page > 1): ?>
-                        <a class="page-btn" href="<?= buildUrl($page-1,$search,$status,$type,$fromDate,$toDate,$limit,$sort,$order) ?>">
+                        <a class="page-btn" href="<?= buildUrl($page-1,$search,$status,$fromDate,$toDate,$limit,$sort,$order) ?>">
                             ◀ Prev
                         </a>
                     <?php endif; ?>
 
                     <!-- First page -->
                     <?php if ($start > 1): ?>
-                        <a class="page-num" href="<?= buildUrl(1,$search,$status,$type,$fromDate,$toDate,$limit,$sort,$order) ?>">1</a>
+                        <a class="page-num" href="<?= buildUrl(1,$search,$status,$fromDate,$toDate,$limit,$sort,$order) ?>">1</a>
 
                         <?php if ($start > 2): ?>
                             <span class="page-ellipsis">...</span>
@@ -608,7 +455,7 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
 
                     <!-- Middle pages -->
                     <?php for ($i = $start; $i <= $end; $i++): ?>
-                        <a class="page-num <?= $i==$page ? 'active' : '' ?>" href="<?= buildUrl($i,$search,$status,$type,$fromDate,$toDate,$limit,$sort,$order) ?>">
+                        <a class="page-num <?= $i==$page ? 'active' : '' ?>" href="<?= buildUrl($i,$search,$status,$fromDate,$toDate,$limit,$sort,$order) ?>">
                             <?= $i ?>
                         </a>
                     <?php endfor; ?>
@@ -620,14 +467,14 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                             <span class="page-ellipsis">...</span>
                         <?php endif; ?>
 
-                        <a class="page-num" href="<?= buildUrl($totalPages,$search,$status,$type,$fromDate,$toDate,$limit,$sort,$order) ?>">
+                        <a class="page-num" href="<?= buildUrl($totalPages,$search,$status,$fromDate,$toDate,$limit,$sort,$order) ?>">
                             <?= $totalPages ?>
                         </a>
                     <?php endif; ?>
 
                     <!-- Next -->
                     <?php if ($page < $totalPages): ?>
-                        <a class="page-btn" href="<?= buildUrl($page+1,$search,$status,$type,$fromDate,$toDate,$limit,$sort,$order) ?>">
+                        <a class="page-btn" href="<?= buildUrl($page+1,$search,$status,$fromDate,$toDate,$limit,$sort,$order) ?>">
                             Next ▶
                         </a>
                     <?php endif; ?>
@@ -638,7 +485,7 @@ function buildUrl($page, $search, $status, $type, $fromDate, $toDate, $limit, $s
                     <form method="GET" class="jump-page-form">
                     <input type="hidden" name="search" value="<?= htmlspecialchars($search) ?>">
                     <input type="hidden" name="status" value="<?= htmlspecialchars($status) ?>">
-                    <input type="hidden" name="type" value="<?= htmlspecialchars($type) ?>">
+                    
                     <input type="hidden" name="fromDate" value="<?= htmlspecialchars($fromDate) ?>">
                     <input type="hidden" name="toDate" value="<?= htmlspecialchars($toDate) ?>">
                     <input type="hidden" name="dateType" value="<?= htmlspecialchars($dateType) ?>">
@@ -683,7 +530,6 @@ if (clearCtrlBtn) {
         const url = new URL(window.location.href);
         url.searchParams.delete("search");
         url.searchParams.delete("status");
-        url.searchParams.delete("type");
         url.searchParams.delete("fromDate");
         url.searchParams.delete("toDate");
         url.searchParams.delete("dateType");
@@ -857,98 +703,13 @@ document.getElementById("statusForm").addEventListener("submit", function(e){
 // click outside then close
 window.addEventListener("click", function (e) {
     const statusModal = document.getElementById("statusModal");
-    const refundModal = document.getElementById("refundModal");
 
     if (e.target === statusModal) {
         closeModal();
     }
-
-    if (e.target === refundModal) {
-        closeRefundModal();
-    }
 });
 
-// Open refund pop up
-function openRefundModal(
-    orderId,
-    orderNo,
-    amount,
-    hasRefundRequest,
-    refundAmount
-) {
 
-    const modal = document.getElementById("refundModal");
-    modal.classList.add("show");
-
-    document.getElementById("refundOrderId").value = orderId;
-    document.getElementById("refundReason").value = "";
-
-    const refundAmountInput = document.getElementById("refundAmount");
-    const refundAmountSection = document.getElementById("refundAmountSection");
-    const title = document.getElementById("refundModalTitle");
-
-    // Have refund request and is APPROVED
-    if (hasRefundRequest) {
-
-        title.innerText = "Refund Order";
-
-        refundAmountInput.value = refundAmount;
-        refundAmountInput.readOnly = true;
-        refundAmountSection.style.opacity = "0.7";
-
-        document.getElementById("refundInfo").innerText =
-            `Order: #${orderNo} | Approved Refund Amount: RM${refundAmount}`;
-
-    // No refund request from customer or refund request is still PENDING / REJECTED, but admin cancel & refund himself 
-    } else {
-
-        title.innerText = "Cancel & Refund Order";
-
-        refundAmountInput.value = amount;
-        refundAmountInput.readOnly = false;
-        refundAmountInput.max = amount;
-        refundAmountSection.style.opacity = "1";
-
-        document.getElementById("refundInfo").innerText =
-            `Order: #${orderNo} | Max Refund Amount: RM${amount}`;
-    }
-}
-
-// Close refund popup
-function closeRefundModal() {
-    document.getElementById("refundModal").classList.remove("show");
-}
-
-// Refund money (Submit via AJAX)
-document.getElementById("refundForm").addEventListener("submit", function(e) {
-    e.preventDefault();
-
-    if (!confirm("Are you sure? This will refund the full amount to the customer's wallet.")) {
-        return;
-    }
-
-    const formData = new FormData(this);
-
-    fetch("process_refund.php", {
-        method: "POST",
-        body: formData
-    })
-    .then(res => res.text())
-    .then(data => {
-        const result = data.trim();
-
-        if (result === "ok") {
-            alert("Refund Successful!");
-            location.reload();
-        } else {
-            alert("Error: " + result);
-        }
-    })
-    .catch(err => {
-        alert("Network error.");
-        console.error(err);
-    });
-});
 
 // Show Toast
 function showToast(type, message) {

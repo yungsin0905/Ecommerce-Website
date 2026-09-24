@@ -130,7 +130,7 @@ $is_completed = ($order_info['ORDER_STATUS'] === 'COMPLETED');
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="css/header.css?v=7.0">
+    <link rel="stylesheet" href="css/header.css?v=8.0">
     <link rel="stylesheet" href="css/footer.css?v=7.0">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
@@ -387,7 +387,7 @@ $is_completed = ($order_info['ORDER_STATUS'] === 'COMPLETED');
         align-items: flex-start;
     }
 
-    button{
+    .btn-back, .btn-review{
         min-width: 150px;
         padding: 10px 26px;
         background-color: var(--main-color);
@@ -401,9 +401,8 @@ $is_completed = ($order_info['ORDER_STATUS'] === 'COMPLETED');
         transition: var(--transition);
     }
 
-    button:hover{
+    .btn-review{
         background-color: var(--btn-hover);
-        transform: translateY(-2px);
     }
 
     .btn-back{
@@ -416,12 +415,11 @@ $is_completed = ($order_info['ORDER_STATUS'] === 'COMPLETED');
         background-color: var(--secondary-color);
         border-color: var(--main-color);
         color: var(--font-color);
-        transform: translateY(-2px);
     }
 
     .btn-disabled {
-        background-color: #E4EBF1;
-        color: #9DB4C7;
+        background-color: #e2edf7;
+        color: #8ea4b8;
         cursor: not-allowed;
         min-width: 150px;
         padding: 10px 26px;
@@ -430,10 +428,13 @@ $is_completed = ($order_info['ORDER_STATUS'] === 'COMPLETED');
         font-weight: 600;
         font-family: 'Inter', sans-serif;
         font-size: 13px;
+        transition: var(--transition);
     }
 
     .btn-disabled:hover{
-        background-color: #E4EBF1;
+        background-color: #e2edf7;
+        color: #8ea4b8;
+        cursor: not-allowed;
         transform: none;
     }
 
@@ -536,7 +537,7 @@ $is_completed = ($order_info['ORDER_STATUS'] === 'COMPLETED');
             <div class="cake-image">
                 <img src="<?php echo !empty($item['COVER_IMAGE']) ? htmlspecialchars($item['COVER_IMAGE']) : 'icon/default_cake.png'; ?>" alt="Product Image">
             </div>
-            <<div class="cake-details">
+            <div class="cake-details">
                 <p><strong>Product Name:</strong> <?php echo htmlspecialchars($item['PRODUCT_NAME']); ?></p>
                 <p><strong>Variant:</strong> <?php echo htmlspecialchars($item['VARIANT_LABEL'] ?? 'N/A'); ?></p>
                 <p><strong>Quantity:</strong> <?php echo intval($item['QUANTITY']); ?></p>
@@ -580,14 +581,14 @@ $is_completed = ($order_info['ORDER_STATUS'] === 'COMPLETED');
                 <p><strong>Discount:</strong> - RM <?php echo number_format($order_info['DISCOUNT_AMOUNT_SNAPSHOT'], 2); ?></p>
             <?php endif; ?>
 
-            <p><strong>Delivery Fee:</strong> RM <?php echo number_format($order_info['SHIPPING_FEE_SNAPSHOT'], 2); ?></p>
+            <p><strong>Delivery Fee:</strong> RM <?php echo number_format($order_info['SHIPPING_FEE_SNAPSHOT'], 2); ?></span></p>
 
             <!--- Use TOTAL_AMOUNT for the final amount display -->
             <p><strong>Total Amount:</strong> <span class="text-highlight">RM <?php echo number_format($order_info['TOTAL_AMOUNT'], 2); ?></span></p>
           
             <p><strong>Payment Method:</strong> <?php echo htmlspecialchars($order_info['PAYMENT_METHODS'] ?? 'N/A'); ?></p>
 
-            <p><strong>Payment Status:</strong><span class="text-highlight"> <?php echo htmlspecialchars($order_info['PAYMENT_STATUS'] ?? 'N/A'); ?></p>
+            <p><strong>Payment Status:</strong><span class="text-highlight"> <?php echo htmlspecialchars($order_info['PAYMENT_STATUS'] ?? 'N/A'); ?></span></p>
 
             <p><strong>Transaction Date:</strong> <?php echo !empty($order_info['TRANSACTION_DATE']) ? date("d M Y, H:i", strtotime($order_info['TRANSACTION_DATE'])) : 'N/A'; ?></p>
         </div>
@@ -603,7 +604,7 @@ $is_completed = ($order_info['ORDER_STATUS'] === 'COMPLETED');
             <button class="btn-disabled" disabled>Reviewed</button>
            <?php else: ?>
             <a href="review.php?order_id=<?php echo $order_id; ?>">
-                <button>Review Order</button>
+                <button class="btn-review">Review Order</button>
             </a>
         <?php endif; ?>
       <?php endif; ?>
