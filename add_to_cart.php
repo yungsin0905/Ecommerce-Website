@@ -2,7 +2,7 @@
 ob_start();
 session_start();  
 include 'include/config.php';
-
+require_once 'include/pricing_functions.php';
 
 // 1. check login
 if(!isset($_SESSION['CUSTOMER_ID'])) {
@@ -19,15 +19,20 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
     $product_id = intval($_POST['product_id']);
     $variant_id = isset($_POST['variant_id']) ? intval($_POST['variant_id']) : 0;
     $qty = isset($_POST['quantity']) ? intval($_POST['quantity']) : 1;
-
+        if ($qty < 1) {
+        ob_end_clean();
+        header('Content-Type: application/json');
+        echo json_encode(['status' => 'error', 'message' => 'Invalid quantity.']);
+        exit();
+    }
     // edit mode
     $editing_cart_item_id = isset($_POST['cart_item_id'])
         ? intval($_POST['cart_item_id'])
         : 0;
 
     // C. process addon
-    $selected_addons = $_POST['selected_addons'] ?? [];
-    $addon_qtys = $_POST['addon_qty'] ?? [];
+    $selected_addons = array_values(array_unique(array_map('intval', (array)($_POST['selected_addons'] ?? []))));
+    $addon_qtys = (array)($_POST['addon_qty'] ?? []);
 
     // A. create a new data
     $cart_res = mysqli_query($conn, "SELECT CART_ID FROM cart WHERE CUSTOMER_ID = $customer_id LIMIT 1");
@@ -38,13 +43,31 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
         $cart_id = mysqli_insert_id($conn);
     }
 
+        if ($editing_cart_item_id > 0) {
+        $own_res = mysqli_query($conn,
+            "SELECT CART_ITEM_ID FROM cart_item
+             WHERE CART_ITEM_ID = $editing_cart_item_id
+             AND CART_ID = $cart_id
+             AND PRODUCT_ID = $product_id
+             LIMIT 1"
+        );
+        if (!$own_res || mysqli_num_rows($own_res) == 0) {
+            ob_end_clean();
+            header('Content-Type: application/json');
+            echo json_encode(['status' => 'error', 'message' => 'Invalid cart item.']);
+            exit();
+        }
+    }
+
     //variant stock verify is existed and enough
-    $variant_res = mysqli_query($conn, 
-        "SELECT VARIANT_STOCK FROM product_variant 
-        WHERE VARIANT_ID = $variant_id 
-        AND PRODUCT_ID = $product_id 
-        AND IS_DELETED = 0 
-        AND VARIANT_STATUS = 'Active' 
+        $variant_res = mysqli_query($conn, 
+        "SELECT pv.VARIANT_STOCK FROM product_variant pv
+        JOIN product p ON pv.PRODUCT_ID = p.PRODUCT_ID
+        WHERE pv.VARIANT_ID = $variant_id 
+        AND pv.PRODUCT_ID = $product_id 
+        AND pv.IS_DELETED = 0 
+        AND pv.VARIANT_STATUS = 'Active' 
+        AND p.IS_DELETED = 0
         LIMIT 1"
     );
 
@@ -99,17 +122,24 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
 }
 
     //verify add on stock
-    foreach ($selected_addons as $addon_id) {
-        $addon_id_clean = intval(trim($addon_id));
+    foreach ($selected_addons as $addon_id_clean) {
         $aqty = isset($addon_qtys[$addon_id_clean]) ? intval($addon_qtys[$addon_id_clean]) : 1;
 
+        if ($addon_id_clean <= 0 || $aqty < 1) {
+            ob_end_clean();
+            header('Content-Type: application/json');
+            echo json_encode(['status' => 'error', 'message' => 'Invalid add-on selected.']);
+            exit();
+        }
+
         $addon_res = mysqli_query($conn,
-            "SELECT pa.ADDON_VARIANT_ID, ap.PRODUCT_NAME, apv.VARIANT_STOCK
+            "SELECT pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID, ap.PRODUCT_NAME
             FROM product_addon pa
             JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
-            LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
             WHERE pa.PRODUCT_ADDON_ID = $addon_id_clean 
+            AND pa.HOST_PRODUCT_ID = $product_id
             AND pa.IS_DELETED = 0 
+            AND ap.IS_DELETED = 0
             LIMIT 1"
         );
 
@@ -122,18 +152,28 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
 
         $addon_row = mysqli_fetch_assoc($addon_res);
 
+        $addon_variant = get_addon_variant_row($conn, $addon_row['ADDON_PRODUCT_ID'], $addon_row['ADDON_VARIANT_ID']);
+        if (!$addon_variant) {
+            ob_end_clean();
+            header('Content-Type: application/json');
+            echo json_encode(['status' => 'error', 'message' => "Add-on \"{$addon_row['PRODUCT_NAME']}\" is no longer available."]);
+            exit();
+        }
+
+        $addon_stock_res = mysqli_query($conn, "SELECT VARIANT_STOCK FROM product_variant WHERE VARIANT_ID = " . intval($addon_variant['VARIANT_ID']));
+        $addon_stock = intval(mysqli_fetch_assoc($addon_stock_res)['VARIANT_STOCK'] ?? 0);
+
         // Only check stock if this addon is tied to a specific variant
-        if (!empty($addon_row['ADDON_VARIANT_ID']) && $aqty > intval($addon_row['VARIANT_STOCK'])) {
+        if ($aqty > $addon_stock) {
             ob_end_clean();
             header('Content-Type: application/json');
             echo json_encode([
                 'status'  => 'error',
-                'message' => "Add-on \"{$addon_row['PRODUCT_NAME']}\" insufficient stock, only {$addon_row['VARIANT_STOCK']} left."
+                'message' => "Add-on \"{$addon_row['PRODUCT_NAME']}\" insufficient stock, only {$addon_stock} left."
             ]);
             exit();
         }
     }
-
         if ($is_buynow) {
         $_SESSION['buynow_item'] = [
             'product_id'      => $product_id,
@@ -228,6 +268,7 @@ if (isset($_POST['product_id']) && !empty($_POST['product_id'])) {
             QUANTITY = $qty,
             IS_BUYNOW = $is_buynow
             WHERE CART_ITEM_ID = $editing_cart_item_id
+            AND CART_ID = $cart_id
         ";
 
         if (!mysqli_query($conn, $update_sql)) {

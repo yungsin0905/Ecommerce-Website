@@ -54,6 +54,21 @@ if (!empty($product['CATEGORY_LIST'])) {
 //====== HTMLPurifier & 自定义样式处理 description ======
 require_once 'include/vendor/HTMLPurifier.standalone.php';
 $config = HTMLPurifier_Config::createDefault();
+$config->set('HTML.SafeIframe', true);
+$config->set('URI.SafeIframeRegexp', '%^(https?:)?//(www\.youtube\.com/embed/|player\.vimeo\.com/video/)%');
+$config->set('HTML.DefinitionID', 'custom-desc');
+$config->set('HTML.DefinitionRev', 1);
+
+if ($def = $config->maybeGetRawHTMLDefinition()) {
+    $def->addElement('video', 'Block', 'Flow', 'Common', [
+        'src' => 'URI', 'controls' => 'Bool', 'autoplay' => 'Bool',
+        'loop' => 'Bool', 'muted' => 'Bool', 'poster' => 'URI',
+        'width' => 'Length', 'height' => 'Length', 'preload' => 'Enum#none,metadata,auto',
+    ]);
+    $def->addElement('source', 'Inline', 'Empty', 'Common', [
+        'src' => 'URI', 'type' => 'Text',
+    ]);
+}
 $purifier = new HTMLPurifier($config);
 
 // 彻底还原多层 HTML 实体转义
@@ -85,12 +100,13 @@ $clean_description = $purifier->purify($raw_desc);
 //=============================================
 
   //retrieve add on
-    $add_query = $add_query = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE as CUSTOM_PRICE, pa.SORT_ORDER, pa.ADDON_VARIANT_ID,
+  $add_query = $add_query = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE as CUSTOM_PRICE, pa.SORT_ORDER, pa.ADDON_VARIANT_ID,
   p2.PRODUCT_ID as ADDON_PRODUCT_ID, p2.PRODUCT_NAME, p2.COVER_IMAGE,
   COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID)) as FINAL_VARIANT_ID,
-  (SELECT VARIANT_PRICE FROM product_variant WHERE VARIANT_ID = COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID))) as VARIANT_PRICE,
-  (SELECT VARIANT_STOCK FROM product_variant WHERE VARIANT_ID = COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID))) as VARIANT_STOCK,
-  (SELECT VARIANT_LABEL FROM product_variant WHERE VARIANT_ID = COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID))) as VARIANT_LABEL
+  (SELECT VARIANT_PRICE FROM product_variant WHERE VARIANT_ID = COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID)) AND IS_DELETED = 0 AND VARIANT_STATUS = 'Active') as VARIANT_PRICE,
+  (SELECT SALE_PRICE FROM product_variant WHERE VARIANT_ID = COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID)) AND IS_DELETED = 0 AND VARIANT_STATUS = 'Active') as SALE_PRICE,
+  (SELECT VARIANT_STOCK FROM product_variant WHERE VARIANT_ID = COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID)) AND IS_DELETED = 0 AND VARIANT_STATUS = 'Active') as VARIANT_STOCK,
+  (SELECT VARIANT_LABEL FROM product_variant WHERE VARIANT_ID = COALESCE(pa.ADDON_VARIANT_ID, MIN(v2.VARIANT_ID)) AND IS_DELETED = 0 AND VARIANT_STATUS = 'Active') as VARIANT_LABEL
 FROM product_addon pa
 JOIN product p2 ON pa.ADDON_PRODUCT_ID = p2.PRODUCT_ID
 JOIN product_variant v2 ON v2.PRODUCT_ID = p2.PRODUCT_ID 
@@ -99,7 +115,9 @@ WHERE pa.HOST_PRODUCT_ID = $product_id
     AND pa.IS_DELETED = 0
     AND p2.IS_DELETED = 0 AND p2.PRODUCT_STATUS = 'Active'
 GROUP BY p2.PRODUCT_ID
+HAVING VARIANT_PRICE IS NOT NULL
 ORDER BY pa.SORT_ORDER ASC";
+
   $add_result = mysqli_query($conn, $add_query);
   $all_addons = mysqli_fetch_all($add_result, MYSQLI_ASSOC);
 
@@ -110,23 +128,26 @@ ORDER BY pa.SORT_ORDER ASC";
         ? $a['PRODUCT_NAME'] . ' ' . $a['VARIANT_LABEL'] 
         : $a['PRODUCT_NAME'];
     $a['ADD_ON_IMAGE'] = $a['COVER_IMAGE'];
-    $a['ADD_ON_PRICE'] = !empty($a['CUSTOM_PRICE']) ? $a['CUSTOM_PRICE'] : $a['VARIANT_PRICE'];
+    $a['ADD_ON_PRICE'] = (!empty($a['CUSTOM_PRICE']) && floatval($a['CUSTOM_PRICE']) > 0)
+        ? $a['CUSTOM_PRICE']
+        : ((!empty($a['SALE_PRICE']) && floatval($a['SALE_PRICE']) > 0) ? $a['SALE_PRICE'] : $a['VARIANT_PRICE']);
     $a['ADD_ON_STOCK'] = $a['VARIANT_STOCK'];
 }
 unset($a);
 
 
   //retrieve product image
-  $img_query = "SELECT IMAGE_PATH FROM product_images WHERE PRODUCT_ID = $product_id AND IS_DELETED = 0";
+  $img_query = "SELECT IMAGE_PATH, VARIANT_ID FROM product_images WHERE PRODUCT_ID = $product_id AND IS_DELETED = 0";
   $img_result = mysqli_query($conn, $img_query);
   $images = mysqli_fetch_all($img_result, MYSQLI_ASSOC);
 
-  $option_value_images = [];
-foreach ($images as $img) {
-    if (!empty($img['OPTION_VALUE_ID'])) {
-        $option_value_images[$img['OPTION_VALUE_ID']] = 'admin/' . $img['IMAGE_PATH'];
-    }
-}
+    // variant_id => 图片路径
+  $variant_images = [];
+  foreach ($images as $img) {
+      if (!empty($img['VARIANT_ID']) && !isset($variant_images[$img['VARIANT_ID']])) {
+          $variant_images[$img['VARIANT_ID']] = 'admin/' . $img['IMAGE_PATH'];
+      }
+  }
 
   //retrieve product variant
   $variant_query = "SELECT * FROM product_variant WHERE PRODUCT_ID = $product_id AND VARIANT_STATUS = 'Active' 
@@ -201,7 +222,10 @@ if (isset($_GET['cart_item_id'])) {
     $cart_item_id = intval($_GET['cart_item_id']);
 
     // 1. main item
-    $edit_sql = "SELECT * FROM cart_item WHERE CART_ITEM_ID = $cart_item_id";
+        $edit_sql = "SELECT ci.* FROM cart_item ci
+                 INNER JOIN cart c ON ci.CART_ID = c.CART_ID
+                 WHERE ci.CART_ITEM_ID = $cart_item_id
+                   AND c.CUSTOMER_ID = " . intval($_SESSION['CUSTOMER_ID'] ?? 0);
     $edit_res = mysqli_query($conn, $edit_sql);
 
     if ($edit_res && mysqli_num_rows($edit_res) > 0) {
@@ -218,7 +242,7 @@ if (isset($_GET['cart_item_id'])) {
           $editing_addons[$row['ADD_ON_ID']] = $row['QUANTITY'];
 
           // greeting card addon
-          if ($row['ADD_ON_ID'] == 3) {
+          if ($row['PRODUCT_ADD_ON_ID'] == 3) {
               $editing_card_text = $row['CARD_TEXT'];
           }
      }
@@ -287,6 +311,7 @@ if (isset($_GET['cart_item_id'])) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
       <link rel="stylesheet" href="css/header.css?v=8.0">
       <link rel="stylesheet" href="css/footer.css?v=7.0">
+      <link rel="stylesheet" href="css/description.css?v=1">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
       :root
@@ -463,131 +488,35 @@ if (isset($_GET['cart_item_id'])) {
       }
 
       .accordion-item.active .accordion-content {
-        max-height: 2500px;
+        max-height: 6000px;
         padding-bottom: 20px;
         overflow-y: visible;
       }
 
-      .description-content {
-        line-height: 1.75;
-        color: var(--font-color);
-        font-size: 14.5px;
+      .packing-note {
+          background: #f8fafc; border-left: 4px solid var(--main-color);
+          padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 8px 0 12px;
+          font-size: 14px; color: #475569;
       }
+      .packing-img {
+          max-width: 100%; height: auto; border-radius: 8px;
+          border: 1px solid var(--search-border-color); margin: 8px 0 18px; display: block;
+      }
+      .feature-img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    border: 1px solid var(--search-border-color);
+    margin: 8px 0 14px;
+    display: block;
+}
 
-      .description-content img {
-        max-width: 100%;
-        height: auto;
-        border-radius: 6px;
-      }
-
-      /* Built-in rich layout helper classes for description */
-      .description-content .desc-grid-2 {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 20px;
-        margin: 20px 0;
-      }
-
-      .description-content .desc-grid-3,
-      .description-content .compare-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 20px;
-        margin: 20px 0;
-      }
-
-      .description-content .desc-grid-4 {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 15px;
-        margin: 20px 0;
-      }
-
-      .description-content .desc-card,
-      .description-content .compare-item {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 20px 16px;
-        text-align: center;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-      }
-
-      .description-content .desc-card:hover,
-      .description-content .compare-item:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(0,0,0,0.08);
-      }
-
-      .description-content .compare-item img,
-      .description-content .desc-card img {
-        max-height: 160px;
-        width: auto;
-        margin-bottom: 12px;
-        object-fit: contain;
-      }
-
-      .description-content .compare-item h4,
-      .description-content .compare-item h5,
-      .description-content .desc-card h4,
-      .description-content .desc-card h5 {
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--font-color);
-        margin: 8px 0 6px;
-      }
-
-      .description-content .desc-note,
-      .description-content .compare-note {
-        background: #f8fafc;
-        border-left: 4px solid var(--main-color);
-        padding: 14px 18px;
-        border-radius: 0 8px 8px 0;
-        margin: 18px 0;
-        color: #475569;
-        font-size: 14px;
-      }
-
-      .description-content .desc-banner {
-        width: 100%;
-        border-radius: 10px;
-        overflow: hidden;
-        margin: 20px 0;
-      }
-
-      .description-content .desc-banner img {
-        width: 100%;
-        height: auto;
-        display: block;
-      }
-
-      .description-content table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 20px 0;
-        font-size: 14px;
-      }
-
-      .description-content th,
-      .description-content td {
-        padding: 12px 16px;
-        border: 1px solid #e2e8f0;
-        text-align: left;
-      }
-
-      .description-content th {
-        background-color: #f1f5f9;
-        font-weight: 600;
-        color: var(--font-color);
-      }
-
-      .description-content tr:nth-child(even) {
-        background-color: #f8fafc;
-      }
+.description-content video,
+.description-content iframe {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+}
 
       /* product details */
       .product-title {
@@ -985,6 +914,8 @@ if (isset($_GET['cart_item_id'])) {
         cursor:pointer;
       }
 
+
+
     
 
       /* zoom animation */
@@ -1043,13 +974,19 @@ if (isset($_GET['cart_item_id'])) {
                   <img id="mainImg" src="admin/<?php echo htmlspecialchars($product['COVER_IMAGE']); ?>" alt="Main Product">
               </div>
               <?php if (!empty($images)): ?>
-              <div class="thumbnail-list">
-                  <img src="admin/<?php echo htmlspecialchars($product['COVER_IMAGE']); ?>" class="active-thumb" onclick="switchMainImage(this.src, this)" alt="Thumb">
-                  <?php foreach ($images as $img):?>
-                  <img src="admin/<?php echo htmlspecialchars($img['IMAGE_PATH']); ?>" onclick="switchMainImage(this.src, this)" alt="Thumb">
-                  <?php endforeach;?>
-              </div>
-              <?php endif; ?>
+                <div class="thumbnail-list">
+                    <img src="admin/<?php echo htmlspecialchars($product['COVER_IMAGE']); ?>" class="active-thumb" onclick="switchMainImage(this.src, this)" alt="Thumb">
+                    <?php
+                    $unique_images = [];
+                    foreach ($images as $img) {
+                        $unique_images[$img['IMAGE_PATH']] = $img;
+                    }
+                    ?>
+                    <?php foreach ($unique_images as $img): ?>
+                        <img src="admin/<?php echo htmlspecialchars($img['IMAGE_PATH']); ?>" onclick="switchMainImage(this.src, this)" alt="Thumb">
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
           </div>
 
           <div class="product-details">
@@ -1275,6 +1212,17 @@ if (isset($_GET['cart_item_id'])) {
                           <?php if (!empty($group['category'])): ?>
                               <p style="font-weight:bold; margin-bottom:4px; color: var(--font-color);"><?php echo htmlspecialchars($group['category']); ?></p>
                           <?php endif; ?>
+
+                          <?php
+                          // 图片链接：只接受 http(s)，外部链接直接用，不加 admin/
+                          $feature_img = trim($group['image'] ?? '');
+                          if ($feature_img !== '' && preg_match('#^https?://#i', $feature_img)):
+                          ?>
+                              <img class="feature-img" src="<?php echo htmlspecialchars($feature_img, ENT_QUOTES); ?>"
+                                  alt="<?php echo htmlspecialchars($group['category'] ?? ''); ?>" loading="lazy">
+                          <?php endif; ?>
+
+                          <?php if (!empty($group['points'])): ?>
                           <ul style="margin-bottom:12px;">
                               <?php foreach ($group['points'] as $point): ?>
                                   <li>
@@ -1289,6 +1237,7 @@ if (isset($_GET['cart_item_id'])) {
                                   </li>
                               <?php endforeach; ?>
                           </ul>
+                          <?php endif; ?>
                       <?php endforeach; ?>
                   <?php else: ?>
                       <p>No features listed.</p>
@@ -1302,15 +1251,26 @@ if (isset($_GET['cart_item_id'])) {
               <div class="accordion-content">
                   <?php if (!empty($packing_data)): ?>
                       <?php foreach ($packing_data as $group): ?>
-                          <?php if (!empty($group['group'])): ?>
-                              <p style="font-weight:bold; margin-bottom:4px; color: var(--font-color);"><?php echo htmlspecialchars($group['group']); ?></p>
-                          <?php endif; ?>
-                          <ul style="margin-bottom:12px;">
-                              <?php foreach ($group['items'] as $item): ?>
-                                  <li><?php echo intval($item['qty']); ?> x <?php echo htmlspecialchars($item['item']); ?></li>
-                              <?php endforeach; ?>
-                          </ul>
-                      <?php endforeach; ?>
+                        <?php if (!empty($group['group'])): ?>
+                            <p style="font-weight:bold; margin-bottom:4px; color: var(--font-color);"><?php echo htmlspecialchars($group['group']); ?></p>
+                        <?php endif; ?>
+                        <?php if (!empty($group['note'])): ?>
+                            <div class="packing-note"><?php echo nl2br(htmlspecialchars($group['note'])); ?></div>
+                        <?php endif; ?>
+                        <?php if (!empty($group['items'])): ?>
+                            <ul style="margin-bottom:12px;">
+                                <?php foreach ($group['items'] as $item): ?>
+                                    <li><?php echo intval($item['qty']); ?> x <?php echo htmlspecialchars($item['item']); ?></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php endif; ?>
+                        <?php if (!empty($group['image'])):
+                            $pk_img = $group['image'];
+                            $pk_src = preg_match('#^https?://#i', $pk_img) ? $pk_img : 'admin/' . $pk_img;
+                        ?>
+                            <img class="packing-img" src="<?php echo htmlspecialchars($pk_src, ENT_QUOTES); ?>" alt="">
+                        <?php endif; ?>
+                    <?php endforeach; ?>
                   <?php else: ?>
                       <p>No packing list available.</p>
                   <?php endif; ?>
@@ -1410,7 +1370,7 @@ if (isset($_GET['cart_item_id'])) {
     const productVariants = <?php echo json_encode($variants); ?>;
     const variantOptionMap = <?php echo json_encode($variant_option_map); ?>;
     const optionGroups = <?php echo json_encode($option_groups); ?>;
-    const optionValueImages = <?php echo json_encode($option_value_images); ?>;
+    const variantImages = <?php echo json_encode($variant_images); ?>;
     let selectedOptions = {}; // level(数字) -> value_id
 
     function findMatchingVariants(partialIds) {
@@ -1442,11 +1402,39 @@ if (isset($_GET['cart_item_id'])) {
 
     updateSelectedVariant();
 
-    if (optionValueImages[valueId]) {
-        const matchThumb = document.querySelector(`.thumbnail-list img[src="${optionValueImages[valueId]}"]`);
-        switchMainImage(optionValueImages[valueId], matchThumb);
-    }
+    showImageForSelection(valueId);
 }
+
+    // 根据当前选择显示对应图片
+    function showImageForSelection(clickedValueId) {
+        const selectedIds = Object.values(selectedOptions);
+        let imgPath = null;
+
+        // 1) 已选完所有层级：精确匹配那个变体
+        if (selectedIds.length === optionGroups.length) {
+            const vid = findMatchingVariants(selectedIds)
+                .find(v => variantOptionMap[v].length === selectedIds.length);
+            if (vid && variantImages[vid]) imgPath = variantImages[vid];
+        }
+
+        // 2) 还没选完：找包含当前点击选项、并且有图片的第一个变体
+        if (!imgPath) {
+            const candidates = findMatchingVariants(selectedIds.length ? selectedIds : [clickedValueId]);
+            for (const vid of candidates) {
+                if (variantImages[vid]) { imgPath = variantImages[vid]; break; }
+            }
+        }
+
+        if (!imgPath) return;   // 没有关联图片就保持原来的主图
+
+        // 缩略图 src 是绝对网址，所以用 endsWith 来匹配
+        const thumbs = document.querySelectorAll('.thumbnail-list img');
+        let matchThumb = null;
+        thumbs.forEach(t => {
+            if (t.getAttribute('src') === imgPath) matchThumb = t;
+        });
+        switchMainImage(imgPath, matchThumb);
+    }
 
     function updateAvailableOptions() {
         optionGroups.forEach((group, idx) => {

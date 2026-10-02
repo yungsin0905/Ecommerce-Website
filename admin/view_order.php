@@ -10,11 +10,12 @@ if (!isset($_SESSION['admin_id'])) {
 $admin_id = $_SESSION['admin_id'];
 
 // Get order id
-$orderId = $_GET['order_id'] ?? 1;
+$orderId = $_GET['order_id'] ?? 0;
 
-if (!$orderId) {
+if (!$orderId || !is_numeric($orderId)) {
     die("Invalid Order ID");
 }
+$orderId = (int)$orderId;
 
 // Get order info
 $sql = "
@@ -23,15 +24,16 @@ SELECT
     s.DELIVERY_STATUS,
     s.SHIPPING_DATE,
     s.SHIPPING_TIME,
-    p.PAYMENT_METHODS,
-    p.PAYMENT_AMOUNT,
-    p.PAYMENT_STATUS,
-    p.TRANSACTION_DATE
+    s.SHIPPING_METHOD,
+    py.PAYMENT_METHODS,
+    py.PAYMENT_AMOUNT,
+    py.PAYMENT_STATUS,
+    py.TRANSACTION_DATE
 FROM orders o
 JOIN shipping s 
     ON o.SHIPPING_ID = s.SHIPPING_ID
-LEFT JOIN payment p 
-    ON o.PAYMENT_ID = p.PAYMENT_ID
+LEFT JOIN payment py 
+    ON o.PAYMENT_ID = py.PAYMENT_ID
 WHERE o.ORDER_ID = ?
 ";
 
@@ -44,38 +46,21 @@ if (!$order) {
     die("Order not found");
 }
 
-// Determine whether is custom or normal order
-$isCustom = ($order['ORDER_TYPE'] === 'Custom');
-
-// DELIVERY TYPE LOGIC
-$createdDate = date('Y-m-d', strtotime($order['CREATED_AT']));
-
-$isSameDay = ($createdDate == $order['DELIVERY_DATE']);
-
-if ($isSameDay) {
-    $deliveryType = "Same Day";
-    $deliveryClass = "same-day";
-} else {
-    $deliveryType = "Pre-order";
-    $deliveryClass = "pre-order";
-}
-
 // GET order items + addon info
 $itemSql = "
 SELECT 
     oi.ORDER_ITEM_ID,
     oi.PRODUCT_ID,
     oi.QUANTITY,
-    oi.CAKE_WRITING,
     oi.CARD_TEXT,
-
     oi.PRODUCT_NAME_SNAPSHOT,
-    oi.VARIANT_SIZE_SNAPSHOT,
+    oi.VARIANT_LABEL_SNAPSHOT,
     oi.VARIANT_PRICE_SNAPSHOT,
+    oi.WARRANTY_SNAPSHOT,
 
     p.COVER_IMAGE,
 
-    oia.ADD_ON_ID,
+    oia.ORDER_ITEM_ADDON_ID,
     oia.QUANTITY AS ADDON_QTY,
     oia.ADDON_NAME_SNAPSHOT,
     oia.ADDON_PRICE_SNAPSHOT
@@ -109,80 +94,12 @@ while ($row = $result->fetch_assoc()) {
 
     if (!empty($row['ADDON_NAME_SNAPSHOT'])) {
         $groupedItems[$id]['addons'][] = [
-            'id' => $row['ADD_ON_ID'],
             'name' => $row['ADDON_NAME_SNAPSHOT'],
             'price' => $row['ADDON_PRICE_SNAPSHOT'],
             'qty' => $row['ADDON_QTY']
         ];
     }
 }
-
-// Get custom info
-$custom = null;
-
-if ($isCustom) {
-
-    $customSql = "
-    SELECT 
-        c.*
-    FROM order_item oi
-    INNER JOIN custom c 
-        ON oi.CUSTOM_ID = c.CUSTOM_ID
-    WHERE oi.ORDER_ID = ?
-    AND c.IS_DELETED = 0
-    LIMIT 1
-    ";
-
-    $stmt3 = $conn->prepare($customSql);
-    $stmt3->bind_param("i", $orderId);
-    $stmt3->execute();
-
-    $custom = $stmt3->get_result()->fetch_assoc();
-}
-
-// Get REFUND REQUEST INFO
-$refundRequest = null;
-
-$refundReqSql = "
-SELECT *
-FROM refund_request
-WHERE ORDER_ID = ?
-ORDER BY REQUEST_ID DESC
-LIMIT 1
-";
-
-$stmt4 = $conn->prepare($refundReqSql);
-$stmt4->bind_param("i", $orderId);
-$stmt4->execute();
-
-$refundRequest = $stmt4->get_result()->fetch_assoc();
-
-$approvedRefund = null;
-
-if ($refundRequest && $refundRequest['REQUEST_STATUS'] === 'APPROVED') {
-    $approvedRefund = $refundRequest;
-}
-
-// Get REFUND INFO
-$refund = null;
-
-$refundSql = "
-SELECT 
-    r.*,
-    a.ADMIN_NAME
-FROM refund r
-LEFT JOIN admin a 
-    ON r.ADMIN_ID = a.ADMIN_ID
-WHERE r.ORDER_ID = ?
-ORDER BY r.CREATED_AT DESC
-LIMIT 1
-";
-
-$stmt5 = $conn->prepare($refundSql);
-$stmt5->bind_param("i", $orderId);
-$stmt5->execute();
-
-$refund = $stmt5->get_result()->fetch_assoc();
 ?>
 
 <!DOCTYPE html>
@@ -405,36 +322,6 @@ body{
 .payment-summary{
     background:linear-gradient(135deg,#ffffff,#f8fbff);
 }
-
-.payment-total{
-    margin-top:16px;
-    padding-top:16px;
-    border-top:2px dashed #ddd;
-}
-
-.payment-total .amount{
-    font-size:30px;
-    font-weight:700;
-    color:var(--primary-dark);
-}
-
-/*  REFUND  */
-.refund-box{
-    background:#fff8f8;
-    border:1px solid #ffd6d6;
-}
-
-/*  IMAGE  */
-.preview-image{
-    max-width:280px;
-    border-radius:12px;
-    border:1px solid #eee;
-}
-
-/*  CUSTOM SECTION */
-.custom-row{
-    padding-bottom:4px;
-}
 </style>
 
 <body>
@@ -447,7 +334,7 @@ body{
     <div class="order-header">
         <div>
             <div class="order-title">
-                Order #<?= $order['ORDER_NO'] ?>
+                Order #<?= htmlspecialchars($order['ORDER_NO']) ?>
             </div>
 
             <div class="order-meta">
@@ -470,104 +357,9 @@ body{
         <div class="left-column">
 
         <div class="section">
-            <!--  CUSTOM ORDER  -->
-            <?php if ($isCustom && $custom): ?>
-
-            <div class="custom-row">
-
-                <h3 style="display:flex;justify-content:space-between;align-items:center;">
-                    Custom Cake Details
-
-                    <span class="badge order-<?= strtolower($order['ORDER_TYPE']) ?>">
-                         <?= htmlspecialchars($order['ORDER_TYPE']) ?>
-                    </span>
-                </h3>
-
-                <div class="row">
-                    <span class="label">Recipient Name</span>
-                    <span><?= htmlspecialchars($custom['RECIPIENT_NAME']) ?></span>
-                </div>
-
-                <div class="row">
-                    <span class="label">Recipient Email</span>
-                    <span><?= htmlspecialchars($custom['RECIPIENT_EMAIL']) ?></span>
-                </div>
-
-                <div class="row">
-                    <span class="label">Recipient Phone</span>
-                    <span><?= htmlspecialchars($custom['RECIPIENT_PHONE']) ?></span>
-                </div>
-
-                <hr>
-
-                <div class="row">
-                    <span class="label">Cake Style</span>
-                    <span><?= !empty($custom['STYLE_NAME_SNAPSHOT']) ? htmlspecialchars($custom['STYLE_NAME_SNAPSHOT']) : 'N/A' ?></span>
-                </div>
-
-                <div class="row">
-                    <span class="label">Cake Size</span>
-                    <span><?= !empty($custom['SIZE']) ? htmlspecialchars($custom['SIZE']) : 'N/A' ?></span>
-                </div>
-
-                <div class="row">
-                    <span class="label">Quantity</span>
-                    <span><?= !empty($custom['QUANTITY']) ? $custom['QUANTITY'] : 'N/A' ?></span>
-                </div>
-
-                <div class="row">
-                    <span class="label">Cater Count</span>
-                    <span><?= !empty($custom['CATER_COUNT']) ?  $custom['CATER_COUNT'] : 'N/A' ?></span>
-                </div>
-
-                <div class="row">
-                    <span class="label">Preferred Flavour</span>
-
-                    <span>
-                        <?= !empty($custom['IDEAL_FLAVOUR']) ? htmlspecialchars($custom['IDEAL_FLAVOUR']) : 'N/A' ?>
-                    </span>
-                </div>
-
-                <div class="row">
-                    <span class="label">Custom Description</span>
-
-                    <span>
-                        <?= !empty($custom['CUSTOM_DES']) ? nl2br(htmlspecialchars($custom['CUSTOM_DES'])) : 'N/A' ?>
-                    </span>
-                </div>
-
-                <div class="row">
-                    <span class="label">Reference Image</span>
-
-                    <span>
-                        <?php if (!empty($custom['REF_IMAGE'])): ?>
-
-                            <img src="../<?= htmlspecialchars($custom['REF_IMAGE']) ?>" class="preview-image">
-
-                        <?php else: ?>
-
-                            N/A
-
-                        <?php endif; ?>
-                    </span>
-                </div>
-
-            </div>
-
-            <?php endif; ?>
-
-            <!--  ORDER ITEMS (Normal order) -->
-            <?php if (!$isCustom): ?>
 
             <div>
-
-                <h3 style="display:flex;justify-content:space-between;align-items:center;">
-                    Order Items
-
-                    <span class="badge order-<?= strtolower($order['ORDER_TYPE']) ?>">
-                         <?= htmlspecialchars($order['ORDER_TYPE']) ?>
-                    </span>
-                </h3>
+                <h3>Order Items</h3>
 
                 <?php foreach ($groupedItems as $item): ?>
 
@@ -587,40 +379,41 @@ body{
 
                     <div class="item-row">
 
-                        <img src="<?= htmlspecialchars($item['COVER_IMAGE']) ?>" class="item-img"/>
+                        <img src="<?= htmlspecialchars($item['COVER_IMAGE'] ?? '') ?>" class="item-img"/>
                         <div class="item-details">
                             <p class="item-name">
-                                <a href="view_product.php?product_id=<?= $item['PRODUCT_ID'] ?>">
+                                <a href="view_product.php?product_id=<?= (int)$item['PRODUCT_ID'] ?>">
                                     <?= htmlspecialchars($item['PRODUCT_NAME_SNAPSHOT']) ?>
                                 </a>
                             </p>
-                            <p class="item-meta">Size: <?= htmlspecialchars($item['VARIANT_SIZE_SNAPSHOT']) ?> inch</p>
-                            <p class="item-meta">Cake Writing: <?= !empty($item['CAKE_WRITING']) ? htmlspecialchars($item['CAKE_WRITING']) : 'N/A' ?></p>
-                            <p class="item-meta">Card Message: <?= !empty($item['CARD_TEXT']) ? htmlspecialchars($item['CARD_TEXT']) : 'N/A' ?></p>
+                            <p class="item-meta">Variant: <?= htmlspecialchars($item['VARIANT_LABEL_SNAPSHOT'] ?? 'N/A') ?></p>
 
-                            <br>
-                            
+                            <?php if (!empty($item['WARRANTY_SNAPSHOT'])): ?>
+                                <p class="item-meta">Warranty: <?= (int)$item['WARRANTY_SNAPSHOT'] ?> month(s)</p>
+                            <?php endif; ?>
+
+                            <?php if (!empty($item['CARD_TEXT'])): ?>
+                                <p class="item-meta">Note: <?= nl2br(htmlspecialchars($item['CARD_TEXT'])) ?></p>
+                            <?php endif; ?>
+
                             <!-- ADDONS -->
                             <?php if (!empty($item['addons'])): ?>
                                 <div class="addon-list">
                                     <?php foreach ($item['addons'] as $addon): ?>
                                         <span class="item-meta addon-tag">
-                                            +
-                                            <a href="view_addon.php?addon_id=<?= $addon['id'] ?>">
-                                                <?= htmlspecialchars($addon['name']) ?>
-                                            </a>
-                                            (×<?= $addon['qty'] ?>) +
-                                             RM <?= number_format($addon['price'] * $addon['qty'], 2) ?>
+                                            + <?= htmlspecialchars($addon['name']) ?>
+                                            (×<?= (int)$addon['qty'] ?>) —
+                                            RM <?= number_format($addon['price'] * $addon['qty'], 2) ?>
                                         </span>
                                         <br>
                                     <?php endforeach; ?>
                                 </div>
                             <?php endif; ?>
-                           
+
                         </div>
 
                         <div class="item-quantity">
-                            × <?= $item['QUANTITY'] ?>
+                            × <?= (int)$item['QUANTITY'] ?>
                         </div>
 
                         <div class="item-price">
@@ -632,19 +425,15 @@ body{
                         </div>
 
                     </div>
-    
+
                 <?php endforeach; ?>
 
             </div>
 
-            <?php endif; ?>
-
                 <?php
                     $subtotal = $order['SUB_TOTAL'] ?? 0;
                     $rate = $order['DISCOUNT_RATE_SNAPSHOT'] ?? 0;
-
                     $discountAmount = $order['DISCOUNT_AMOUNT_SNAPSHOT'] ?? 0;
-
                     $totalPaid = $order['TOTAL_AMOUNT'] ?? 0;
                 ?>
 
@@ -665,12 +454,8 @@ body{
                             <span>Discount
                             <?php if (!empty($order['VOUCHER_CODE_SNAPSHOT'])): ?>
                                 <small>
-                                    
                                    (
-                                    <a href="view_voucher.php?voucher_id=<?= $order['VOUCHER_ID'] ?>" class="links">
-                                        <strong><?= htmlspecialchars($order['VOUCHER_CODE_SNAPSHOT']) ?></strong>
-                                    </a>
-
+                                    <strong><?= htmlspecialchars($order['VOUCHER_CODE_SNAPSHOT']) ?></strong>
                                     <?php if (!empty($order['VOUCHER_NAME_SNAPSHOT'])): ?>
                                         <span style="color:#666;">
                                             - <?= htmlspecialchars($order['VOUCHER_NAME_SNAPSHOT']) ?>
@@ -683,7 +468,6 @@ body{
 
                             <span>
                             - RM <?= number_format($discountAmount, 2) ?>
-
                             <?php if ($rate > 0): ?>
                             (<?= $rate ?>%)
                             <?php endif; ?>
@@ -709,59 +493,37 @@ body{
                 </div>
 
                 <div class="row">
-                    <span class="label">Shipping Type</span>
-
-                    <span class="badge delivery-<?= $deliveryClass ?>">
-                        <?= $deliveryType ?>
-                    </span>
+                    <span class="label">Shipping Method</span>
+                    <span><?= htmlspecialchars($order['SHIPPING_METHOD']) ?></span>
                 </div>
 
                 <div class="row">
                     <span class="label">Delivery Address</span>
-
-                    <span>
-                        <?= nl2br(htmlspecialchars($order['DELIVERY_ADDRESS_SNAPSHOT'])) ?>
-                    </span>
-                </div>
-
-                <div class="row">
-                    <span class="label">Expected Delivery Date</span>
-
-                    <span>
-                        <?= date("d M Y", strtotime($order['DELIVERY_DATE'])) ?>
-                    </span>
-                </div>
-
-                <div class="row">
-                    <span class="label">Expected Delivery Time</span>
-
-                    <span>
-                        <?= htmlspecialchars(($order['DELIVERY_SLOT_SNAPSHOT'])) ?>
-                    </span>
+                    <span><?= nl2br(htmlspecialchars($order['DELIVERY_ADDRESS_SNAPSHOT'] ?? '')) ?></span>
                 </div>
 
                 <div class="row">
                     <span class="label">Delivery Status</span>
-
                     <span class="badge status-<?= strtolower(str_replace(' ','-', $order['DELIVERY_STATUS'])) ?>">
                         <?= htmlspecialchars($order['DELIVERY_STATUS']) ?>
                     </span>
                 </div>
 
+                <?php if (!empty($order['READY_AT'])): ?>
+                <div class="row">
+                    <span class="label">Ready At</span>
+                    <span><?= date("d M Y h:i A", strtotime($order['READY_AT'])) ?></span>
+                </div>
+                <?php endif; ?>
+
                 <div class="row">
                     <span class="label">Actual Delivery Date</span>
-
-                    <span>
-                        <?= !empty($order['SHIPPING_DATE']) ? date("d M Y", strtotime($order['SHIPPING_DATE'])) : 'N/A' ?>
-                    </span>
+                    <span><?= !empty($order['SHIPPING_DATE']) ? date("d M Y", strtotime($order['SHIPPING_DATE'])) : 'N/A' ?></span>
                 </div>
 
                 <div class="row">
                     <span class="label">Actual Delivery Time</span>
-
-                    <span>
-                        <?= !empty($order['SHIPPING_TIME']) ? date("h:i A", strtotime($order['SHIPPING_TIME'])) : 'N/A' ?>
-                    </span>
+                    <span><?= !empty($order['SHIPPING_TIME']) ? date("h:i A", strtotime($order['SHIPPING_TIME'])) : 'N/A' ?></span>
                 </div>
 
             </div>
@@ -777,31 +539,22 @@ body{
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <h3>Customer Info</h3>
 
-                    <a class="action-btn" href="view_customer.php?customer_id=<?= $order['CUSTOMER_ID'] ?>">View</a>
+                    <a class="action-btn" href="view_customer.php?customer_id=<?= (int)$order['CUSTOMER_ID'] ?>">View</a>
                 </div>
 
                 <div class="row">
                     <span class="label">Customer Name</span>
-
-                    <span>
-                        <?= htmlspecialchars($order['CUSTOMER_NAME_SNAPSHOT']) ?>
-                    </span>
+                    <span><?= htmlspecialchars($order['CUSTOMER_NAME_SNAPSHOT']) ?></span>
                 </div>
 
                 <div class="row">
                     <span class="label">Email Address</span>
-
-                    <span>
-                        <?= htmlspecialchars($order['CUSTOMER_EMAIL_SNAPSHOT']) ?>
-                    </span>
+                    <span><?= htmlspecialchars($order['CUSTOMER_EMAIL_SNAPSHOT']) ?></span>
                 </div>
 
                 <div class="row">
                     <span class="label">Phone Number</span>
-
-                    <span>
-                        <?= htmlspecialchars($order['CUSTOMER_PHONE_SNAPSHOT']) ?>
-                    </span>
+                    <span><?= htmlspecialchars($order['CUSTOMER_PHONE_SNAPSHOT']) ?></span>
                 </div>
 
             </div>
@@ -813,100 +566,25 @@ body{
 
                 <div class="row">
                     <span class="label">Payment Method</span>
-
-                    <span>
-                        <?= htmlspecialchars($order['PAYMENT_METHODS']) ?>
-                    </span>
+                    <span><?= htmlspecialchars($order['PAYMENT_METHODS'] ?? 'N/A') ?></span>
                 </div>
 
                 <div class="row">
                     <span class="label">Payment Amount</span>
-
-                    <span>
-                        RM <?= number_format($order['PAYMENT_AMOUNT'], 2) ?>
-                    </span>
+                    <span>RM <?= number_format($order['PAYMENT_AMOUNT'] ?? 0, 2) ?></span>
                 </div>
 
                 <div class="row">
                     <span class="label">Payment Status</span>
-
-                    <span class="badge status-<?= strtolower($order['PAYMENT_STATUS']) ?>">
-                        <?= htmlspecialchars($order['PAYMENT_STATUS']) ?>
+                    <span class="badge status-<?= strtolower($order['PAYMENT_STATUS'] ?? 'n-a') ?>">
+                        <?= htmlspecialchars($order['PAYMENT_STATUS'] ?? 'N/A') ?>
                     </span>
                 </div>
 
-            </div>
-
-            <!--  REFUND INFO  -->
-            <div class="section refund-box">
-
-                <h3>Refund Info</h3>
-
-                <?php if ($refund): ?>
-
-                    <!-- refund that request by customer-->
-                    <?php if (!empty($refund['REQUEST_ID'])): ?>
-                        <div class="row">
-                            <span class="label" style="color:#d63333; font-weight:700;">
-                                Request by customer
-                            </span>
-
-                            <span>
-                                <a href="process_refund_request.php?request_id=<?= $refund['REQUEST_ID'] ?>" class="action-btn">
-                                    View Request
-                                </a>
-                            </span>
-                        </div>
-
-                    <!-- refund by admin hisself -->
-                    <?php else: ?>
-                        <div class="row">
-                            <span class="label" style="color:#d63333; font-weight:700;">
-                                Refund by admin
-                            </span>
-
-                            <span></span>
-                        </div>
-
-                    <?php endif; ?>
-
-                    <div class="row">
-                        <span class="label">Refund Status</span>
-
-                        <span class="badge status-<?= strtolower($refund['REFUND_STATUS']) ?>">
-                            <?= htmlspecialchars($refund['REFUND_STATUS']) ?>
-                        </span>
-                    </div>
-
-                    <div class="row">
-                        <span class="label">Refund Amount</span>
-
-                        <span>
-                            RM <?= number_format($refund['REFUND_AMOUNT'], 2) ?>
-                        </span>
-                    </div>
-
-                    <div class="row">
-                        <span class="label">Refund Date</span>
-
-                        <span>
-                            <small><?= date("d M Y h:i A", strtotime($order['REFUND_DATE'])) ?></small>
-                        </span>
-                    </div>
-
-                    <div class="row">
-                        <span class="label">Admin Note</span>
-
-                        <span>
-                            <small><?= nl2br(htmlspecialchars($refund['REASON'])) ?></small>
-                        </span>
-                    </div>
-
-                <?php else: ?>
-
-                    <p>No refund record found.</p>
-
-                <?php endif; ?>
+                <div class="row">
+                    <span class="label">Transaction Date</span>
+                    <span><?= !empty($order['TRANSACTION_DATE']) ? date("d M Y h:i A", strtotime($order['TRANSACTION_DATE'])) : 'N/A' ?></span>
+                </div>
 
             </div>
 

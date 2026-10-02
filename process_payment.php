@@ -2,7 +2,7 @@
 session_start();
 require_once 'include/config.php';
 require_once 'include/membership_functions.php';
-
+require_once 'include/pricing_functions.php';
 // 1. Ensure user already logged in
 if (!isset($_SESSION['CUSTOMER_ID'])) {
     header("Location: login.php");
@@ -68,39 +68,46 @@ if ($is_buynow && empty($selected_item_ids) && isset($_SESSION['buynow_item'])) 
     $qty        = intval($bn_item['quantity']   ?? 1);
 
     if ($variant_id > 0) {
-        $v_res = mysqli_query($conn, "SELECT VARIANT_PRICE, SALE_PRICE FROM product_variant WHERE VARIANT_ID = $variant_id");
+        $v_res = mysqli_query($conn,
+            "SELECT pv.VARIANT_PRICE, pv.SALE_PRICE
+             FROM product_variant pv
+             JOIN product p ON pv.PRODUCT_ID = p.PRODUCT_ID
+             WHERE pv.VARIANT_ID = $variant_id
+               AND pv.IS_DELETED = 0
+               AND p.IS_DELETED = 0"
+        );
         if ($v_row = mysqli_fetch_assoc($v_res)) {
             $unit_price = (!empty($v_row['SALE_PRICE']) && floatval($v_row['SALE_PRICE']) > 0)
                           ? floatval($v_row['SALE_PRICE'])
                           : floatval($v_row['VARIANT_PRICE']);
             $sub_total += $unit_price * $qty;
+        } else {
+            header("Location: shopping_cart.php");
+            exit;
         }
 
-        foreach (($bn_item['addon_qtys'] ?? []) as $addon_id => $addon_qty) {
-            $addon_id  = intval($addon_id);
-            $addon_qty = intval($addon_qty);
-            if ($addon_id <= 0 || $addon_qty <= 0) continue;
+        foreach (($bn_item['selected_addons'] ?? []) as $addon_id) {
+            $addon_id  = intval(trim($addon_id));
+            if ($addon_id <= 0) continue;
+            $addon_qty = intval($bn_item['addon_qtys'][$addon_id] ?? 1);
+            if ($addon_qty <= 0) continue;
 
             $a_res = mysqli_query($conn,
-                "SELECT pa.ADDON_PRICE AS OVERRIDE_PRICE, apv.VARIANT_PRICE, apv.SALE_PRICE
+                "SELECT pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID, pa.ADDON_PRICE AS OVERRIDE_PRICE
                  FROM product_addon pa
-                 LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
-                 WHERE pa.PRODUCT_ADDON_ID = $addon_id AND pa.IS_DELETED = 0"
+                 JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
+                 WHERE pa.PRODUCT_ADDON_ID = $addon_id
+                   AND pa.IS_DELETED = 0
+                   AND ap.IS_DELETED = 0"
             );
             if ($a_row = mysqli_fetch_assoc($a_res)) {
-                if ($a_row['OVERRIDE_PRICE'] !== null) {
-                    $addon_unit_price = floatval($a_row['OVERRIDE_PRICE']);
-                } elseif (!empty($a_row['SALE_PRICE']) && floatval($a_row['SALE_PRICE']) > 0) {
-                    $addon_unit_price = floatval($a_row['SALE_PRICE']);
-                } else {
-                    $addon_unit_price = floatval($a_row['VARIANT_PRICE'] ?? 0);
-                }
-                $sub_total += $addon_unit_price * $addon_qty;
+                $resolved = resolve_addon_price($conn, $a_row);
+                if (!$resolved) continue;
+                $sub_total += $resolved['price'] * $addon_qty;
             }
         }
     }
 }
-
 // 5b. Cart item pricing
 if (!empty($selected_item_ids)) {
     $ids_string  = implode(',', $selected_item_ids);
@@ -108,10 +115,20 @@ if (!empty($selected_item_ids)) {
         "SELECT ci.CART_ITEM_ID, ci.PRODUCT_ID, ci.VARIANT_ID, ci.QUANTITY,
                 p.PRODUCT_NAME, p.WARRANTY, pv.VARIANT_LABEL, pv.VARIANT_PRICE, pv.SALE_PRICE
         FROM cart_item ci
-        LEFT JOIN product p          ON ci.PRODUCT_ID = p.PRODUCT_ID
-        LEFT JOIN product_variant pv ON ci.VARIANT_ID = pv.VARIANT_ID
-        WHERE ci.CART_ITEM_ID IN ($ids_string)"
+        INNER JOIN cart c             ON ci.CART_ID = c.CART_ID
+        INNER JOIN product p          ON ci.PRODUCT_ID = p.PRODUCT_ID
+        INNER JOIN product_variant pv ON ci.VARIANT_ID = pv.VARIANT_ID
+        WHERE ci.CART_ITEM_ID IN ($ids_string)
+          AND c.CUSTOMER_ID = $customer_id
+          AND p.IS_DELETED = 0
+          AND pv.IS_DELETED = 0"
     );
+
+    if (mysqli_num_rows($item_result) < count($selected_item_ids)) {
+        header("Location: shopping_cart.php");
+        exit;
+    }
+
     while ($item = mysqli_fetch_assoc($item_result)) {
         $unit_price = (!empty($item['SALE_PRICE']) && floatval($item['SALE_PRICE']) > 0)
                       ? floatval($item['SALE_PRICE'])
@@ -120,27 +137,27 @@ if (!empty($selected_item_ids)) {
 
         $cart_item_id = intval($item['CART_ITEM_ID']);
         $addon_result = mysqli_query($conn,
-                "SELECT cia.QUANTITY AS ADDON_QTY, pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE AS OVERRIDE_PRICE,
-                        pa.ADDON_VARIANT_ID,
-                        ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME,
-                        apv.VARIANT_PRICE, apv.SALE_PRICE
+                "SELECT cia.QUANTITY AS ADDON_QTY, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                        pa.ADDON_PRICE AS OVERRIDE_PRICE
                 FROM cart_item_addon cia
                 JOIN product_addon pa ON cia.PRODUCT_ADD_ON_ID = pa.PRODUCT_ADDON_ID
                 JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
-                LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
-                WHERE cia.CART_ITEM_ID = $cart_item_id"
+                WHERE cia.CART_ITEM_ID = $cart_item_id
+                  AND pa.IS_DELETED = 0
+                  AND ap.IS_DELETED = 0"
             );
         while ($addon = mysqli_fetch_assoc($addon_result)) {
-            if ($addon['OVERRIDE_PRICE'] !== null) {
-                $addon_unit_price = floatval($addon['OVERRIDE_PRICE']);
-            } elseif (!empty($addon['SALE_PRICE']) && floatval($addon['SALE_PRICE']) > 0) {
-                $addon_unit_price = floatval($addon['SALE_PRICE']);
-            } else {
-                $addon_unit_price = floatval($addon['VARIANT_PRICE'] ?? 0);
-            }
-            $sub_total += $addon_unit_price * intval($addon['ADDON_QTY']);
+            $resolved = resolve_addon_price($conn, $addon);
+            if (!$resolved) continue;
+            $sub_total += $resolved['price'] * intval($addon['ADDON_QTY']);
         }
     }
+}
+
+// Refuse to create an empty / zero-value order
+if ($sub_total <= 0) {
+    header("Location: shopping_cart.php");
+    exit;
 }
 
 // 6. Shipping fee — free nationwide delivery for now
@@ -240,12 +257,12 @@ mysqli_begin_transaction($conn);
 
 try {
     // a. Deduct wallet balance if paying by Balance
-    $before_balance        = 0.00;
-    $new_balance           = 0.00;
-    $wallet_transaction_id = 0;
-
-    if ($payment_method === 'Balance') {
-        $before_balance = floatval($user_data['WALLET_BALANCE']);
+       if ($payment_method === 'Balance') {
+        $wallet_res     = mysqli_query($conn, "SELECT WALLET_BALANCE FROM customer WHERE CUSTOMER_ID = $customer_id FOR UPDATE");
+        $before_balance = floatval(mysqli_fetch_assoc($wallet_res)['WALLET_BALANCE']);
+        if ($before_balance < $final_amount) {
+            throw new Exception("Insufficient wallet balance at payment time");
+        }
         $new_balance    = $before_balance - $final_amount;
 
         mysqli_query($conn,
@@ -365,15 +382,19 @@ try {
         }
     }
     // f(i). Insert order items from cart (normal checkout)
-    if (!empty($selected_item_ids)) {
+        if (!empty($selected_item_ids)) {
         $ids_string  = implode(',', $selected_item_ids);
         $item_result = mysqli_query($conn,
             "SELECT ci.CART_ITEM_ID, ci.PRODUCT_ID, ci.VARIANT_ID, ci.QUANTITY,
-                    p.PRODUCT_NAME, pv.VARIANT_LABEL, pv.VARIANT_PRICE, pv.SALE_PRICE
+                    p.PRODUCT_NAME, p.WARRANTY, pv.VARIANT_LABEL, pv.VARIANT_PRICE, pv.SALE_PRICE
              FROM cart_item ci
-             LEFT JOIN product p          ON ci.PRODUCT_ID = p.PRODUCT_ID
-             LEFT JOIN product_variant pv ON ci.VARIANT_ID = pv.VARIANT_ID
-             WHERE ci.CART_ITEM_ID IN ($ids_string)"
+             INNER JOIN cart c             ON ci.CART_ID = c.CART_ID
+             INNER JOIN product p          ON ci.PRODUCT_ID = p.PRODUCT_ID
+             INNER JOIN product_variant pv ON ci.VARIANT_ID = pv.VARIANT_ID
+             WHERE ci.CART_ITEM_ID IN ($ids_string)
+               AND c.CUSTOMER_ID = $customer_id
+               AND p.IS_DELETED = 0
+               AND pv.IS_DELETED = 0"
         );
 
         while ($item = mysqli_fetch_assoc($item_result)) {
@@ -405,9 +426,9 @@ try {
             $order_item_id = mysqli_insert_id($conn);
 
             // Deduct stock, bump sales count
-            mysqli_query($conn, "UPDATE product_variant SET VARIANT_STOCK = VARIANT_STOCK - $qty WHERE VARIANT_ID = $variant_id");
-            if (mysqli_errno($conn)) {
-                throw new Exception("Failed to update variant stock: " . mysqli_error($conn));
+            mysqli_query($conn, "UPDATE product_variant SET VARIANT_STOCK = VARIANT_STOCK - $qty WHERE VARIANT_ID = $variant_id AND VARIANT_STOCK >= $qty");
+            if (mysqli_errno($conn) || mysqli_affected_rows($conn) === 0) {
+                throw new Exception("Insufficient stock or failed to update variant stock: " . mysqli_error($conn));
             }
 
             mysqli_query($conn, "UPDATE product SET SALES_COUNT = SALES_COUNT + $qty WHERE PRODUCT_ID = $product_id");
@@ -417,27 +438,24 @@ try {
 
             // Process add-ons for this cart item
             $addon_result = mysqli_query($conn,
-                "SELECT cia.QUANTITY AS ADDON_QTY, pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE AS OVERRIDE_PRICE,
-                        ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME,
-                        apv.VARIANT_PRICE, apv.SALE_PRICE
+                "SELECT cia.QUANTITY AS ADDON_QTY, pa.PRODUCT_ADDON_ID, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                        pa.ADDON_PRICE AS OVERRIDE_PRICE,
+                        ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
                  FROM cart_item_addon cia
                  JOIN product_addon pa ON cia.PRODUCT_ADD_ON_ID = pa.PRODUCT_ADDON_ID
                  JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
-                 LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
-                 WHERE cia.CART_ITEM_ID = $cart_item_id"
+                 WHERE cia.CART_ITEM_ID = $cart_item_id
+                   AND pa.IS_DELETED = 0
+                   AND ap.IS_DELETED = 0"
             );
 
             while ($addon = mysqli_fetch_assoc($addon_result)) {
                 $addon_id = intval($addon['PRODUCT_ADDON_ID']);
                 $aqty     = intval($addon['ADDON_QTY']);
 
-                if ($addon['OVERRIDE_PRICE'] !== null) {
-                    $addon_unit_price = floatval($addon['OVERRIDE_PRICE']);
-                } elseif (!empty($addon['SALE_PRICE']) && floatval($addon['SALE_PRICE']) > 0) {
-                    $addon_unit_price = floatval($addon['SALE_PRICE']);
-                } else {
-                    $addon_unit_price = floatval($addon['VARIANT_PRICE'] ?? 0);
-                }
+                $resolved = resolve_addon_price($conn, $addon);
+                if (!$resolved) continue;
+                $addon_unit_price = $resolved['price'];
 
                 $addon_name_esc = mysqli_real_escape_string($conn, $addon['ADDON_PRODUCT_NAME']);
                 $addon_price_f  = number_format($addon_unit_price, 2, '.', '');
@@ -450,16 +468,15 @@ try {
                          ($order_item_id, $addon_id, $aqty,
                           '$addon_name_esc', $addon_price_f)"
                 );
-                    // Deduct stock from the addon's own variant, if it has one
-                if (!empty($addon['ADDON_VARIANT_ID'])) {
-                    $addon_variant_id = intval($addon['ADDON_VARIANT_ID']);
-                    mysqli_query($conn, "UPDATE product_variant SET VARIANT_STOCK = VARIANT_STOCK - $aqty WHERE VARIANT_ID = $addon_variant_id");
-                    if (mysqli_errno($conn)) {
-                        throw new Exception("Failed to deduct addon stock: " . mysqli_error($conn));
-                    }
-                }
                 if (mysqli_errno($conn)) {
                     throw new Exception("Failed to insert order item addon: " . mysqli_error($conn));
+                }
+
+                // Deduct stock from the addon's own variant, if it has one
+                $addon_variant_id = $resolved['variant_id'];
+                mysqli_query($conn, "UPDATE product_variant SET VARIANT_STOCK = VARIANT_STOCK - $aqty WHERE VARIANT_ID = $addon_variant_id AND VARIANT_STOCK >= $aqty");
+                if (mysqli_errno($conn) || mysqli_affected_rows($conn) === 0) {
+                    throw new Exception("Insufficient addon stock or failed to deduct: " . mysqli_error($conn));
                 }
             }
 
@@ -477,7 +494,7 @@ try {
             "SELECT p.PRODUCT_ID, p.PRODUCT_NAME, p.WARRANTY, pv.VARIANT_LABEL, pv.VARIANT_PRICE, pv.SALE_PRICE
             FROM product_variant pv
             JOIN product p ON pv.PRODUCT_ID = p.PRODUCT_ID
-            WHERE pv.VARIANT_ID = $variant_id AND p.IS_DELETED = 0 LIMIT 1"
+            WHERE pv.VARIANT_ID = $variant_id AND p.IS_DELETED = 0 AND pv.IS_DELETED = 0 LIMIT 1"
         );
         $prod_row = mysqli_fetch_assoc($prod_res);
 
@@ -505,9 +522,9 @@ try {
             }
             $order_item_id = mysqli_insert_id($conn);
 
-            mysqli_query($conn, "UPDATE product_variant SET VARIANT_STOCK = VARIANT_STOCK - $qty WHERE VARIANT_ID = $variant_id");
-            if (mysqli_errno($conn)) {
-                throw new Exception("Failed to update variant stock: " . mysqli_error($conn));
+            mysqli_query($conn, "UPDATE product_variant SET VARIANT_STOCK = VARIANT_STOCK - $qty WHERE VARIANT_ID = $variant_id AND VARIANT_STOCK >= $qty");
+            if (mysqli_errno($conn) || mysqli_affected_rows($conn) === 0) {
+                throw new Exception("Insufficient stock or failed to update variant stock: " . mysqli_error($conn));
             }
 
             mysqli_query($conn, "UPDATE product SET SALES_COUNT = SALES_COUNT + $qty WHERE PRODUCT_ID = $product_id");
@@ -516,30 +533,27 @@ try {
             }
 
             // Add-ons chosen at buy-now time
-            foreach (($bn_item['addon_qtys'] ?? []) as $addon_id => $addon_qty) {
-                $addon_id  = intval($addon_id);
-                $addon_qty = intval($addon_qty);
-                if ($addon_id <= 0 || $addon_qty <= 0) continue;
+            foreach (($bn_item['selected_addons'] ?? []) as $addon_id) {
+                $addon_id  = intval(trim($addon_id));
+                if ($addon_id <= 0) continue;
+                $addon_qty = intval($bn_item['addon_qtys'][$addon_id] ?? 1);
+                if ($addon_qty <= 0) continue;
 
                 $a_res = mysqli_query($conn,
-                    "SELECT pa.ADDON_PRICE AS OVERRIDE_PRICE, pa.ADDON_VARIANT_ID,
-                            ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME,
-                            apv.VARIANT_PRICE, apv.SALE_PRICE
+                    "SELECT pa.ADDON_PRICE AS OVERRIDE_PRICE, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                            ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
                     FROM product_addon pa
                     JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
-                    LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
-                    WHERE pa.PRODUCT_ADDON_ID = $addon_id AND pa.IS_DELETED = 0"
+                    WHERE pa.PRODUCT_ADDON_ID = $addon_id
+                      AND pa.IS_DELETED = 0
+                      AND ap.IS_DELETED = 0"
                 );
                 $a_row = mysqli_fetch_assoc($a_res);
 
                 if ($a_row) {
-                    if ($a_row['OVERRIDE_PRICE'] !== null) {
-                        $addon_unit_price = floatval($a_row['OVERRIDE_PRICE']);
-                    } elseif (!empty($a_row['SALE_PRICE']) && floatval($a_row['SALE_PRICE']) > 0) {
-                        $addon_unit_price = floatval($a_row['SALE_PRICE']);
-                    } else {
-                        $addon_unit_price = floatval($a_row['VARIANT_PRICE'] ?? 0);
-                    }
+                    $resolved = resolve_addon_price($conn, $a_row);
+                    if (!$resolved) continue;
+                    $addon_unit_price = $resolved['price'];
 
                     $addon_name_esc = mysqli_real_escape_string($conn, $a_row['ADDON_PRODUCT_NAME']);
                     $addon_price_f  = number_format($addon_unit_price, 2, '.', '');
@@ -555,10 +569,17 @@ try {
                     if (mysqli_errno($conn)) {
                         throw new Exception("Failed to insert buy-now order item addon: " . mysqli_error($conn));
                     }
+
+                    $addon_variant_id = $resolved['variant_id'];
+                    mysqli_query($conn, "UPDATE product_variant SET VARIANT_STOCK = VARIANT_STOCK - $addon_qty WHERE VARIANT_ID = $addon_variant_id AND VARIANT_STOCK >= $addon_qty");
+                    if (mysqli_errno($conn) || mysqli_affected_rows($conn) === 0) {
+                        throw new Exception("Insufficient addon stock or failed to deduct: " . mysqli_error($conn));
+                    }
                 }
             }
+        }else {
+            throw new Exception("Buy-now product is no longer available");
         }
-
         unset($_SESSION['buynow_item']);
         unset($_SESSION['checkout_mode']);
         unset($_SESSION['checkout_selected_items']);
@@ -714,22 +735,26 @@ try {
     mysqli_commit($conn);
 
     // i. Insert admin notification for new order
-    $notif_message = "You have one new order";
-    $notif_type    = "Order";
+    try {
+        $notif_message = "You have one new order";
+        $notif_type    = "Order";
 
-    $stmt_notif = $conn->prepare("INSERT INTO notification (TYPE, REF_ID, MESSAGE) VALUES (?, ?, ?)");
-    $stmt_notif->bind_param("sis", $notif_type, $order_id, $notif_message);
-    $stmt_notif->execute();
-    $notif_id = $conn->insert_id;
+        $stmt_notif = $conn->prepare("INSERT INTO notification (TYPE, REF_ID, MESSAGE) VALUES (?, ?, ?)");
+        $stmt_notif->bind_param("sis", $notif_type, $order_id, $notif_message);
+        $stmt_notif->execute();
+        $notif_id = $conn->insert_id;
 
-    $stmt_admins = $conn->prepare("SELECT ADMIN_ID FROM admin");
-    $stmt_admins->execute();
-    $admins = $stmt_admins->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt_admins = $conn->prepare("SELECT ADMIN_ID FROM admin");
+        $stmt_admins->execute();
+        $admins = $stmt_admins->get_result()->fetch_all(MYSQLI_ASSOC);
 
-    $stmt_admin_notif = $conn->prepare("INSERT INTO admin_notification (ADMIN_ID, NOTIF_ID, IS_READ) VALUES (?, ?, 0)");
-    foreach ($admins as $admin) {
-        $stmt_admin_notif->bind_param("ii", $admin['ADMIN_ID'], $notif_id);
-        $stmt_admin_notif->execute();
+        $stmt_admin_notif = $conn->prepare("INSERT INTO admin_notification (ADMIN_ID, NOTIF_ID, IS_READ) VALUES (?, ?, 0)");
+        foreach ($admins as $admin) {
+            $stmt_admin_notif->bind_param("ii", $admin['ADMIN_ID'], $notif_id);
+            $stmt_admin_notif->execute();
+        }
+    } catch (Throwable $e) {
+        error_log("process_payment.php notification error: " . $e->getMessage());
     }
 
     header("Location: order_confirmation.php?order_id=$order_id&order_no=" . urlencode($order_no));

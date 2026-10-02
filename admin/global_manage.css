@@ -252,12 +252,11 @@ body {
     cursor: pointer;
     font-size: 16px;
     border-radius: 6px;
+    transition:0.5s;
 }
 
 .action-btn:hover {
     background: var(--primary-border);
-    width: 20px;
-    height: 20px;
 }
 
 .action-wrapper {

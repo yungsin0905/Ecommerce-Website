@@ -53,9 +53,10 @@ $voucher_result = mysqli_query($conn, "
     FROM customer_voucher cv
     INNER JOIN voucher v ON cv.VOUCHER_ID = v.VOUCHER_ID
     LEFT JOIN membership_tier mt ON v.TIER_ID = mt.TIER_ID
-    WHERE cv.CUSTOMER_ID = $customer_id
+      WHERE cv.CUSTOMER_ID = $customer_id
       AND v.IS_DELETED = 0
       AND v.VOUCHER_STATUS = 'Active'
+      AND v.START_DATE <= NOW()
       AND (
             (v.VOUCHER_TYPE = 'Public' AND v.TIER_ID IS NULL)
             OR
@@ -525,7 +526,7 @@ $effective_expiry = !empty($display_candidates) ? min($display_candidates) : nul
                   <?php if (($v['DISCOUNT_TYPE'] ?? 'PERCENTAGE') === 'FIXED'): ?>
                     <span class="discount-symbol" style="margin:0 4px 0 0;">RM</span><span class="discount-value"><?= intval($v['DISCOUNT_RATE']) ?></span>
                   <?php else: ?>
-                    <span class="discount-value"><?= $v['DISCOUNT_RATE'] ?></span><span class="discount-symbol">%</span>
+                    <span class="discount-value"><?= intval($v['DISCOUNT_RATE']) ?></span><span class="discount-symbol">%</span>
                   <?php endif; ?>
                   <span class="discount-type">OFF</span>
                 </div>

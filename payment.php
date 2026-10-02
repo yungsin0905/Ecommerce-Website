@@ -1,7 +1,7 @@
 <?php
 session_start();
 require_once 'include/config.php';
-
+require_once 'include/pricing_functions.php';
 
 // 1. Check if user is logged in
 if (!isset($_SESSION['CUSTOMER_ID'])) {
@@ -80,31 +80,6 @@ $SHIPPING_FEE = 0.00;
 $cart_items = [];
 $SUB_TOTAL  = 0;
 
-/**
- * Helper: fetch the variant row used to price an addon.
- * If ADDON_VARIANT_ID is set, use that specific variant.
- * Otherwise fall back to the addon product's first/default variant —
- * addon price always comes from the addon's own product/variant, never
- * from a fixed price field (product_addon has no ADDON_PRICE column).
- */
-function get_addon_variant_row($conn, $addon_product_id, $addon_variant_id) {
-    $addon_product_id = intval($addon_product_id);
-
-    if (!empty($addon_variant_id)) {
-        $variant_id = intval($addon_variant_id);
-        $sql = "SELECT VARIANT_ID, VARIANT_LABEL, VARIANT_PRICE, SALE_PRICE
-                FROM product_variant
-                WHERE VARIANT_ID = $variant_id AND IS_DELETED = 0 LIMIT 1";
-    } else {
-        $sql = "SELECT VARIANT_ID, VARIANT_LABEL, VARIANT_PRICE, SALE_PRICE
-                FROM product_variant
-                WHERE PRODUCT_ID = $addon_product_id AND IS_DELETED = 0
-                ORDER BY VARIANT_ID ASC LIMIT 1";
-    }
-    $res = mysqli_query($conn, $sql);
-    return $res ? mysqli_fetch_assoc($res) : null;
-}
-
 // 6a. Buy Now item (single product purchased directly, bypassing the cart)
 if ($is_buynow && isset($_SESSION['buynow_item'])) {
     $bn         = $_SESSION['buynow_item'];
@@ -112,13 +87,15 @@ if ($is_buynow && isset($_SESSION['buynow_item'])) {
     $qty        = intval($bn['quantity']   ?? 1);
 
     if ($variant_id > 0) {
-        $sql = "SELECT pv.VARIANT_ID, pv.PRODUCT_ID, pv.VARIANT_LABEL, pv.SKU,
+                $sql = "SELECT pv.VARIANT_ID, pv.PRODUCT_ID, pv.VARIANT_LABEL, pv.SKU,
                        pv.VARIANT_PRICE, pv.SALE_PRICE, pv.VARIANT_STOCK,
                        p.PRODUCT_NAME, p.COVER_IMAGE, p.PRODUCT_CODE, p.BRAND
                 FROM product_variant pv
                 LEFT JOIN product p ON pv.PRODUCT_ID = p.PRODUCT_ID
                 WHERE pv.VARIANT_ID = $variant_id
-                  AND p.IS_DELETED = 0";
+                  AND p.IS_DELETED = 0
+                  AND pv.IS_DELETED = 0";
+
         $result = mysqli_query($conn, $sql);
         $row    = $result ? mysqli_fetch_assoc($result) : null;
 
@@ -141,24 +118,30 @@ if ($is_buynow && isset($_SESSION['buynow_item'])) {
                 $addon_qty = intval($bn['addon_qtys'][$addon_id] ?? 1);
                 if ($addon_qty <= 0) continue;
 
-                $addon_sql = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
-                                     ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
+                        $addon_sql = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                               pa.ADDON_PRICE AS OVERRIDE_PRICE,
+                             ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
                               FROM product_addon pa
                               JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
                               WHERE pa.PRODUCT_ADDON_ID = $addon_id
-                                AND pa.IS_DELETED = 0";
+                                AND pa.IS_DELETED = 0
+                                AND ap.IS_DELETED = 0";
                 $addon_result = mysqli_query($conn, $addon_sql);
                 $addon        = $addon_result ? mysqli_fetch_assoc($addon_result) : null;
 
                 if ($addon) {
                     // Always price the addon from its own product's variant, not a fixed override price
                     $variant = get_addon_variant_row($conn, $addon['ADDON_PRODUCT_ID'], $addon['ADDON_VARIANT_ID']);
+                    if (!$variant) continue;
 
                     $addon_unit_price = 0;
                     $addon['ADDON_VARIANT_LABEL'] = '';
                     if ($variant) {
                         $addon_unit_price = (!empty($variant['SALE_PRICE'])) ? floatval($variant['SALE_PRICE']) : floatval($variant['VARIANT_PRICE']);
                         $addon['ADDON_VARIANT_LABEL'] = $variant['VARIANT_LABEL'];
+                    }
+                    if ($addon['OVERRIDE_PRICE'] !== null && floatval($addon['OVERRIDE_PRICE']) > 0) {
+                        $addon_unit_price = floatval($addon['OVERRIDE_PRICE']);
                     }
 
                     $addon['ADDON_QTY']   = $addon_qty;
@@ -169,7 +152,7 @@ if ($is_buynow && isset($_SESSION['buynow_item'])) {
             }
 
             $row['SINGLE_SET_PRICE'] = $unit_price + $addon_total_for_item;
-            $SUB_TOTAL               += $row['SINGLE_SET_PRICE'] * $qty;
+                        $SUB_TOTAL               += ($unit_price * $qty) + $addon_total_for_item;
 
             $cart_items[] = $row;
         }
@@ -178,7 +161,7 @@ if ($is_buynow && isset($_SESSION['buynow_item'])) {
     // 6b. Cart items (from shopping cart checkout)
     $ids_string = implode(',', $selected_item_ids);
 
-    $sql = "SELECT ci.CART_ITEM_ID, ci.PRODUCT_ID, ci.VARIANT_ID, ci.QUANTITY,
+        $sql = "SELECT ci.CART_ITEM_ID, ci.PRODUCT_ID, ci.VARIANT_ID, ci.QUANTITY,
                    p.PRODUCT_NAME, p.COVER_IMAGE, p.PRODUCT_CODE, p.BRAND,
                    pv.VARIANT_LABEL, pv.SKU, pv.VARIANT_PRICE, pv.SALE_PRICE, pv.VARIANT_STOCK
             FROM cart_item ci
@@ -186,7 +169,9 @@ if ($is_buynow && isset($_SESSION['buynow_item'])) {
             LEFT JOIN product p ON ci.PRODUCT_ID = p.PRODUCT_ID
             LEFT JOIN product_variant pv ON ci.VARIANT_ID = pv.VARIANT_ID
             WHERE ci.CART_ITEM_ID IN ($ids_string)
-              AND c.CUSTOMER_ID = $customer_id";
+              AND c.CUSTOMER_ID = $customer_id
+              AND p.IS_DELETED = 0
+              AND pv.IS_DELETED = 0";
 
     $result = mysqli_query($conn, $sql);
 
@@ -200,12 +185,15 @@ if ($is_buynow && isset($_SESSION['buynow_item'])) {
             $row['final_unit_price'] = $unit_price;
 
                         $addon_sql = "SELECT cia.CART_ITEM_ADDON_ID, cia.QUANTITY AS ADDON_QTY,
-                                 pa.PRODUCT_ADDON_ID, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
-                                 ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
+                         pa.PRODUCT_ADDON_ID, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                         pa.ADDON_PRICE AS OVERRIDE_PRICE,
+                        ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
                           FROM cart_item_addon cia
                           JOIN product_addon pa ON cia.PRODUCT_ADD_ON_ID = pa.PRODUCT_ADDON_ID
                           JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
-                          WHERE cia.CART_ITEM_ID = " . intval($row['CART_ITEM_ID']);
+                          WHERE pa.IS_DELETED = 0
+                            AND ap.IS_DELETED = 0
+                            AND cia.CART_ITEM_ID = " . intval($row['CART_ITEM_ID']);
             $addon_result = mysqli_query($conn, $addon_sql);
 
             $row['addons']        = [];
@@ -215,12 +203,16 @@ if ($is_buynow && isset($_SESSION['buynow_item'])) {
                 while ($addon = mysqli_fetch_assoc($addon_result)) {
                     // Always price the addon from its own product's variant, not a fixed override price
                     $variant = get_addon_variant_row($conn, $addon['ADDON_PRODUCT_ID'], $addon['ADDON_VARIANT_ID']);
+                    if (!$variant) continue;
 
                     $addon_unit_price = 0;
                     $addon['ADDON_VARIANT_LABEL'] = '';
                     if ($variant) {
                         $addon_unit_price = (!empty($variant['SALE_PRICE'])) ? floatval($variant['SALE_PRICE']) : floatval($variant['VARIANT_PRICE']);
                         $addon['ADDON_VARIANT_LABEL'] = $variant['VARIANT_LABEL'];
+                    }
+                    if ($addon['OVERRIDE_PRICE'] !== null && floatval($addon['OVERRIDE_PRICE']) > 0) {
+                        $addon_unit_price = floatval($addon['OVERRIDE_PRICE']);
                     }
 
                     $addon['UNIT_PRICE']   = $addon_unit_price;
@@ -230,16 +222,22 @@ if ($is_buynow && isset($_SESSION['buynow_item'])) {
             }
 
             $row['SINGLE_SET_PRICE'] = $unit_price + $addon_total_for_item;
-            $SUB_TOTAL               += $row['SINGLE_SET_PRICE'] * $qty;
+                        $SUB_TOTAL               += ($unit_price * $qty) + $addon_total_for_item;
 
             $cart_items[] = $row;
         }
     }
 }
+if (!$is_buynow && count($cart_items) < count($selected_item_ids)) {
+    header("Location: shopping_cart.php");
+    exit;
+}
 if (empty($cart_items)) {
     header("Location: shopping_cart.php");
     exit;
 }
+
+
 // 7. Check available vouchers
 $customer_tier_id = 0;
 $tier_q = mysqli_query($conn, "SELECT TIER_ID FROM customer WHERE CUSTOMER_ID = $customer_id");

@@ -38,8 +38,8 @@ function grant_fixed_voucher($conn, $customer_id, $voucher_name, $amount, $vouch
     }
     $voucher_id = mysqli_insert_id($conn);
 
-    $cv_sql = "INSERT INTO customer_voucher (CUSTOMER_ID, VOUCHER_ID, USED_COUNT, EXPIRY_DATE, CLAIMED_AT)
-               VALUES ($customer_id, $voucher_id, 0, DATE_ADD(CURDATE(), INTERVAL $valid_days DAY), CURDATE())";
+   $cv_sql = "INSERT INTO customer_voucher (CUSTOMER_ID, VOUCHER_ID, USED_COUNT, EXPIRY_DATE, CLAIMED_AT, START_NOTIFIED)
+           VALUES ($customer_id, $voucher_id, 0, DATE_ADD(CURDATE(), INTERVAL $valid_days DAY), CURDATE(), 1)";
 
     if (!mysqli_query($conn, $cv_sql)) {
         error_log("grant_fixed_voucher: insert customer_voucher failed - " . mysqli_error($conn));
@@ -95,6 +95,8 @@ function check_and_process_membership($conn, $customer_id) {
 
     // --- 3. Milestone window expiry ---
     process_milestone_window($conn, $customer_id, $customer, $today);
+        // --- 4. Voucher start-date notifications ---
+    process_voucher_start_notifications($conn, $customer_id);
 }
 
 function process_monthly_tier_voucher($conn, $customer_id, $customer, $today) {
@@ -230,4 +232,41 @@ function notify_customer($conn, $customer_id, $type, $ref_id, $message) {
     }
 
     return $notif_id;
+
+}
+
+/**
+ * 通知客户：已拿到、且今天起可使用的 voucher（每张只通知一次）
+ */
+function process_voucher_start_notifications($conn, $customer_id) {
+    $customer_id = intval($customer_id);
+
+    $res = mysqli_query($conn, "
+        SELECT cv.CUSTOMER_VOUCHER_ID, v.VOUCHER_ID, v.VOUCHER_NAME
+        FROM customer_voucher cv
+        INNER JOIN voucher v  ON v.VOUCHER_ID = cv.VOUCHER_ID
+        INNER JOIN customer c ON c.CUSTOMER_ID = cv.CUSTOMER_ID
+        WHERE cv.CUSTOMER_ID = $customer_id
+          AND cv.START_NOTIFIED = 0
+          AND cv.EXPIRY_DATE >= CURDATE()
+          AND v.VOUCHER_STATUS = 'Active'
+          AND v.IS_DELETED = 0
+          AND v.START_DATE <= NOW()
+          AND (v.TIER_ID IS NULL OR v.TIER_ID = 0 OR v.TIER_ID = c.TIER_ID)
+    ");
+    if (!$res) return;
+
+    while ($row = mysqli_fetch_assoc($res)) {
+        $cvId = intval($row['CUSTOMER_VOUCHER_ID']);
+
+        // 先标记，成功抢到才通知，避免两个页面同时加载时重复发
+        mysqli_query($conn, "UPDATE customer_voucher SET START_NOTIFIED = 1
+                             WHERE CUSTOMER_VOUCHER_ID = $cvId AND START_NOTIFIED = 0");
+        if (mysqli_affected_rows($conn) !== 1) continue;
+
+        $msg = "Your voucher \"" . $row['VOUCHER_NAME'] . "\" is now available to use!";
+        if (mb_strlen($msg) > 100) $msg = mb_substr($msg, 0, 97) . '...';
+
+        notify_customer($conn, $customer_id, 'Voucher', intval($row['VOUCHER_ID']), $msg);
+    }
 }

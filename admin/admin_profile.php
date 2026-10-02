@@ -9,7 +9,7 @@ if (!isset($_SESSION['admin_id'])) {
 $admin_id = $_SESSION['admin_id'];
 
 //page title
-$pageTitle = "Profile";
+$pageTitle = "Admin Profile";
 
 // Admin info
 $stmt = $conn->prepare("SELECT * FROM admin WHERE ADMIN_ID = ?");
@@ -70,7 +70,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_prof_info'])) {
         $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif'];
 
         if (!in_array($fileExtension, $allowedExtensions)) {
-                $_SESSION['errors']['imageErr'] = "Invalid image format. Allowed: jpg, jpeg, png, gif.";
+            $_SESSION['errors']['imageErr'] = "Invalid image format. Allowed: jpg, jpeg, png, gif.";
         } else {
             $uploadDir = __DIR__ . '/uploads/adminProf/';
             if (!file_exists($uploadDir)) mkdir($uploadDir, 0777, true);
@@ -116,7 +116,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_prof_pswd'])) {
         $_SESSION['errors']['newPswdErr'] = "New password is required"; 
     // Password rule
     } elseif (!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_\-+=<>?]).{8,12}$/', $new_pswd)) {
-        $_SESSION['errors']['newPswdErr'] = "Password must be 8–12 chars with atleast one uppercase letter(A-Z), one lowercase letter(a-z), one digit(0-9), and one special character(!@#$%^&*()_\-+=<>?).";
+        $_SESSION['errors']['newPswdErr'] = "Password must be 8–12 chars with at least one uppercase letter (A-Z), one lowercase letter (a-z), one digit (0-9), and one special character.";
     } elseif (password_verify($new_pswd, $admin['ADMIN_PASSWORD'])) {
         $_SESSION['errors']['newPswdErr'] = "New password cannot be same as current.";
     } 
@@ -137,7 +137,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_prof_pswd'])) {
         if ($pswd_stmt->execute()) {
             $_SESSION['successes']['updateProfPswdSucc'] = "Password updated successfully.";
         } else {
-            $_SESSION['errors']['updateProfPswdErr'] = "Failed to update profile.";
+            $_SESSION['errors']['updateProfPswdErr'] = "Failed to update password.";
         }
     }
     header("Location: admin_profile.php"); 
@@ -150,136 +150,284 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_prof_pswd'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Profile</title>
+    <title>Admin Profile | Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="admin_global.css">
 <style>
+:root {
+    --bg-page: #f4f5f8;
+    --card-bg: #ffffff;
+    --text-dark: #111827;
+    --text-muted: #71717a;
+    --text-light: #9ca3af;
+    --accent-lime: #d4f938;
+    --accent-lime-hover: #c4ec29;
+    --accent-lime-subtle: #f4fde6;
+    --dark-pill: #18181b;
+    --dark-pill-hover: #27272a;
+    --border-card: #edf0f3;
+    --border-subtle: #f1f3f6;
+    --shadow-soft: 0 4px 20px rgba(17, 24, 39, 0.035);
+    --shadow-hover: 0 10px 28px rgba(17, 24, 39, 0.07);
+    --radius-card: 20px;
+    --radius-pill: 9999px;
+    --font-heading: 'Plus Jakarta Sans', sans-serif;
+    --font-body: 'Inter', -apple-system, sans-serif;
+}
+
 body {
-    background: var(--primary-grey);
-    font-family: var(--font-family);
+    background-color: var(--bg-page);
+    font-family: var(--font-body);
+    color: var(--text-dark);
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
 }
 
-/* Page layout */
+.main {
+    padding: 24px 30px 60px !important;
+}
+
 .prof-main-cont {
+    width: 100%;
     display: flex;
-    gap: 30px;
-    padding: 30px;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* Page Header */
+.dash-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
     flex-wrap: wrap;
+    gap: 16px;
 }
 
-/* Each section */
-.prof-info-sec,
-.prof-pswd-sec {
-    flex: 1;
-    min-width: 320px;
-    background: #fff;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-}
-
-/* Section title */
-.prof-info-sec h3,
-.prof-pswd-sec h3 {
-    margin-bottom: 15px;
-    font-size: 18px;
-}
-
-/* Profile info layout */
-.prof-info-content-main {
+.dash-title-group {
     display: flex;
-    gap: 20px;
+    align-items: center;
+    gap: 14px;
+}
+
+.dash-title-badge {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-pill);
+    background: var(--accent-lime);
+    color: var(--text-dark);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 800;
+    box-shadow: 0 4px 12px rgba(212, 249, 56, 0.35);
+    position: relative;
+    cursor: default;
+}
+
+.dash-title-badge .badge-arrow {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    background: var(--text-dark);
+    color: var(--accent-lime);
+    width: 18px;
+    height: 18px;
+    border-radius: var(--radius-pill);
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+}
+
+.dash-title {
+    font-family: var(--font-heading);
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--text-muted);
+    line-height: 1.15;
+    margin: 0;
+    letter-spacing: -0.5px;
+}
+
+.dash-title strong {
+    color: var(--text-dark);
+    font-weight: 800;
+    font-size: 26px;
+    display: block;
+}
+
+/* Grid Layout for Cards */
+.prof-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
     align-items: flex-start;
 }
 
-/* Profile image */
-.prof-info-pic {
-    width: 120px;
-    height: 120px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 2px solid #ddd;
+@media (max-width: 960px) {
+    .prof-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
-/* Right side form area */
-.prof-info-content-2 {
-    flex: 1;
+/* Card Box */
+.prof-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-card);
+    padding: 28px 32px;
+    box-shadow: var(--shadow-soft);
+    position: relative;
+}
+
+.prof-card-title {
+    font-family: var(--font-heading);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-dark);
+    margin: 0 0 22px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.prof-card-title i {
+    color: var(--text-dark);
+    font-size: 16px;
+}
+
+.prof-card-title .card-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-page);
+    color: var(--text-muted);
+    margin-left: auto;
+}
+
+/* Avatar Section */
+.avatar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 24px;
+    padding: 16px 20px;
+    background: var(--bg-page);
+    border: 1px solid var(--border-card);
+    border-radius: 16px;
+}
+
+.prof-info-pic {
+    width: 84px;
+    height: 84px;
+    border-radius: var(--radius-pill);
+    object-fit: cover;
+    border: 3px solid #ffffff;
+    box-shadow: 0 4px 14px rgba(17, 24, 39, 0.08);
+    background: #ffffff;
+    flex-shrink: 0;
+}
+
+.avatar-actions {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
 }
 
-/* Labels spacing */
-.prof-info-content-2 p {
-    margin: 6px 0 4px;
-    font-weight: 500;
-}
-
-/* Inputs */
-.prof-info-content-2 input {
-    padding: 8px 10px;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    outline: none;
-}
-
-/* Disabled inputs */
-.prof-info-content-2 input:disabled {
-    background: #f5f5f5;
-}
-
-/* Buttons */
 .prof-change-pic-btn {
-    padding: 6px 10px;
-    font-size: 13px;
-    border: none;
-    background: #eee;
-    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 12.5px;
+    font-weight: 700;
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-pill);
+    background: #ffffff;
+    color: var(--text-dark);
     cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: var(--shadow-soft);
+    width: fit-content;
 }
 
 .prof-change-pic-btn:hover {
-    background: #ddd;
+    background: var(--dark-pill);
+    color: #ffffff;
+    border-color: var(--dark-pill);
 }
 
-.prof-update-info-btn,
-.prof-update-pswd-btn {
-    margin-top: 15px;
-    padding: 10px;
-    width: 100%;
-    border: none;
-    background: var(--primary-dark);
-    color: var(--primary-white);
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: 600;
+.avatar-hint {
+    font-size: 11.5px;
+    color: var(--text-muted);
 }
 
-.prof-update-info-btn:hover,
-.prof-update-pswd-btn:hover {
-    background: var(--primary-light);
-}
-
-/* Password section */
-.prof-pswd-content {
+/* Form Controls */
+.form-group {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
+    margin-bottom: 18px;
 }
 
-/* Input spacing */
-.prof-pswd-content input {
-    padding: 8px 10px;
-    border: 1px solid #ccc;
-    border-radius: 6px;
+.form-group label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin: 0;
 }
 
-/* Labels */
-.prof-pswd-content p {
-    margin: 6px 0 4px;
-    font-weight: 500;
+.asterisk {
+    color: #ef4444;
+    margin-left: 2px;
 }
 
-/* Phone */
+.form-input {
+    width: 100%;
+    padding: 11px 16px;
+    border: 1px solid var(--border-card);
+    border-radius: 12px;
+    font-size: 13.5px;
+    background: var(--bg-page);
+    color: var(--text-dark);
+    font-family: var(--font-body);
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.form-input:focus {
+    outline: none;
+    background: #ffffff;
+    border-color: var(--dark-pill);
+    box-shadow: 0 0 0 3px rgba(212, 249, 56, 0.4);
+}
+
+.form-input:disabled,
+.form-input[readonly] {
+    background: #f1f3f6 !important;
+    color: #64748b !important;
+    cursor: not-allowed;
+    border-color: var(--border-card);
+}
+
+.form-input.input-error {
+    border-color: #ef4444;
+    background: #fff5f5;
+}
+
+/* Phone input group */
 .phone-wrapper {
     display: flex;
     align-items: stretch;
@@ -290,72 +438,118 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0 12px;
-    background: #f5f5f5;
-    border: 1px solid #ccc;
+    padding: 0 16px;
+    background: #e5e7eb;
+    border: 1px solid var(--border-card);
     border-right: none;
-    border-radius: 6px 0 0 6px;
-    font-size: 14px;
+    border-radius: 12px 0 0 12px;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--text-dark);
 }
 
 .phone-input {
     flex: 1;
-    border-radius: 0 6px 6px 0;
+    border-radius: 0 12px 12px 0 !important;
 }
 
-/* Error / Success */
+/* Security Note */
+.security-note {
+    background: #f8fafc;
+    border: 1px solid var(--border-card);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 20px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.security-note ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+}
+
+.security-note li {
+    margin-bottom: 2px;
+}
+
 .error {
-    color: red;
+    color: #ef4444;
     font-size: 12px;
-    margin-top: -4px;
-    margin-bottom: 4px;
+    margin-top: 4px;
+    font-weight: 500;
     display: block;
 }
 
-.success-auto-hide {
-    color: green;
-    font-size: 13px;
-    margin-top: 8px;
+/* Actions */
+.form-actions {
+    margin-top: 24px;
+    display: flex;
+    justify-content: flex-end;
 }
 
-/* Image upload button row */
-.prof-info-content-2-btn,
-.prof-pswd-content-btn {
-    margin-top: 10px;
+.form-btn {
+    background: var(--dark-pill);
+    color: #ffffff;
+    border: none;
+    border-radius: var(--radius-pill);
+    padding: 12px 28px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 14px rgba(24, 24, 27, 0.15);
+    font-family: var(--font-heading);
+    width: 100%;
+}
+
+.form-btn:hover {
+    background: #000000;
+    color: var(--accent-lime);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(24, 24, 27, 0.25);
 }
 
 /* Toast */
 .toast {
     position: fixed;
     top: 24px;
-    left: 50%;
-    padding: 12px 18px;
-    border-radius: 8px;
-    color: #fff;
-    background: #333;
-    opacity: 0;
-    transform: translateX(-50%);
-    transition: 0.3s;
+    right: 24px;
+    padding: 12px 20px;
+    border-radius: var(--radius-pill);
+    font-size: 13.5px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
     z-index: 9999;
-    font-size: 14px;
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
 }
 
 .toast.show {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
 }
 
 .toast.success {
-    background: #28a745;
+    background: var(--dark-pill);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .toast.error {
-    background: #dc3545;
-}
-
-/* Asterisk */
-.asterisk {
-    color: red;
+    background: #ef4444;
+    color: #ffffff;
 }
 </style>
 </head>
@@ -367,96 +561,122 @@ body {
 
         <div class="prof-main-cont">
 
-            <div class="prof-info-sec">
-              <h3>Details</h3>
-
-              <form method="post" enctype="multipart/form-data">
-
-                <div class="prof-info-content-main">
-                    <img src="<?= htmlspecialchars($admin_image) ?>" alt="Profile Picture" class="prof-info-pic">
-                 
-                    <div class="prof-info-content-2">
-                        <button type="button" class="prof-change-pic-btn" onclick="document.getElementById('imageInput').click()">Change Profile Picture</button>
-                        <input type="file" name="admin_image" style="display: none;" id="imageInput">
-                        <span class="error" id="imageErr"><?= $errors['imageErr'] ?? '' ?></span>
-
-                        <p>Name<span class="asterisk">*</span></p>
-                        <input type="text" name="admin_name" id="nameInput" value="<?= htmlspecialchars($admin_name) ?>" oninput="validateName()">
-                        <span class="error" id="nameErr"><?= $errors['nameErr'] ?? '' ?></span>
-
-                        <p>Role<span class="asterisk">*</span></p>
-                        <input type="text" id="roleInput" value="<?= htmlspecialchars($admin_role) ?>" disabled>
-
-                        <p>Email<span class="asterisk">*</span></p>
-                        <input type="email" id="emailInput" value="<?= htmlspecialchars($admin_email) ?>" disabled>
-
-                        <p>Phone</p>
-                        <div class="phone-wrapper">
-                            <span class="phone-prefix">+60</span>
-                            <input type="text" name="admin_phone" id="phoneInput" class="phone-input" value="<?= htmlspecialchars(preg_replace('/^\+60/', '', $admin_phone)) ?>" oninput="validatePhone()">
-                        </div>
-                        <span class="error" id="phoneErr"><?= $errors['phoneErr'] ?? '' ?></span>
+            <!-- Page Header -->
+            <div class="dash-header">
+                <div class="dash-title-group">
+                    <div class="dash-title-badge">
+                        <i class="bi bi-person-badge"></i>
+                        <div class="badge-arrow"><i class="bi bi-arrow-up-right"></i></div>
+                    </div>
+                    <div>
+                        <h1 class="dash-title"><strong>Admin Profile</strong> Manage your account information and credentials</h1>
                     </div>
                 </div>
-
-                <?php if (!empty($errors['updateProfInfoErr'])) { ?>             
-                    <script>
-                        window.addEventListener("DOMContentLoaded", function () {
-                            showToast("<?= $errors['updateProfInfoErr'] ?>", "error");
-                        });
-                    </script>
-                <?php } ?>
-                <?php if (!empty($successes['updateProfInfoSucc'])) { ?>
-                    <script>
-                        window.addEventListener("DOMContentLoaded", function () {
-                            showToast("<?= $successes['updateProfInfoSucc'] ?>", "success");
-                        });
-                    </script>
-                <?php } ?>
-
-                <div class="prof-info-content-2-btn">
-                    <button type="submit" name="update_prof_info" class="prof-update-info-btn">Update</button>
-                </div>
-
-              </form>
             </div>
 
-            <div class="prof-pswd-sec">
-              <h3>Change Password</h3>
+            <!-- Profile Grid -->
+            <div class="prof-grid">
 
-              <form method="post" class="prof-pswd-content">
-                <p>Current Password<span class="asterisk">*</span></p>
-                <input type="password" name="current_pswd" id="currentPswd" oninput="validatePassword()">
-                <span class="error" id="currentPswdErr"><?= $errors['currentPswdErr'] ?? '' ?></span>
+                <!-- CARD 1: PERSONAL DETAILS -->
+                <div class="prof-card">
+                    <div class="prof-card-title">
+                        <i class="bi bi-person"></i> Personal Details
+                        <span class="card-badge">Profile</span>
+                    </div>
 
-                <p>New Password<span class="asterisk">*</span></p>
-                <input type="password" name="new_pswd" id="newPswd" oninput="validatePassword()">
-                <span class="error" id="newPswdErr"><?= $errors['newPswdErr'] ?? '' ?></span>
+                    <form method="post" enctype="multipart/form-data">
 
-                <p>Confirm New Password<span class="asterisk">*</span></p>
-                <input type="password" name="confirm_pswd" id="confirmPswd" oninput="validatePassword()">
-                <span class="error" id="confirmPswdErr"><?= $errors['confirmPswdErr'] ?? '' ?></span>
+                        <div class="avatar-wrap">
+                            <img src="<?= !empty($admin_image) ? htmlspecialchars($admin_image) : 'images/default_avatar.png' ?>" alt="Profile Picture" class="prof-info-pic">
+                            <div class="avatar-actions">
+                                <button type="button" class="prof-change-pic-btn" onclick="document.getElementById('imageInput').click()">
+                                    <i class="bi bi-camera"></i> Change Photo
+                                </button>
+                                <input type="file" name="admin_image" style="display: none;" id="imageInput" accept="image/jpeg,image/png,image/gif">
+                                <span class="avatar-hint">JPG, PNG, or GIF format</span>
+                                <span class="error" id="imageErr"><?= $errors['imageErr'] ?? '' ?></span>
+                            </div>
+                        </div>
 
-                <?php if (!empty($errors['updateProfPswdErr'])) { ?>
-                    <script>
-                        window.addEventListener("DOMContentLoaded", function () {
-                            showToast("<?= $errors['updateProfPswdErr'] ?>", "error");
-                        });
-                    </script>
-                <?php } ?>
-                <?php if (!empty($successes['updateProfPswdSucc'])) { ?>
-                    <script>
-                        window.addEventListener("DOMContentLoaded", function () {
-                            showToast("<?= $successes['updateProfPswdSucc'] ?>", "success");
-                        });
-                    </script>
-                <?php } ?>
+                        <div class="form-group">
+                            <label>Name<span class="asterisk">*</span></label>
+                            <input type="text" name="admin_name" id="nameInput" class="form-input" value="<?= htmlspecialchars($admin_name) ?>" oninput="validateName()" maxlength="50">
+                            <span class="error" id="nameErr"><?= $errors['nameErr'] ?? '' ?></span>
+                        </div>
 
-                <div class="prof-pswd-content-btn">
-                  <button type="submit" name="update_prof_pswd" class="prof-update-pswd-btn">Update</button>
+                        <div class="form-group">
+                            <label>Role</label>
+                            <input type="text" id="roleInput" class="form-input" value="<?= htmlspecialchars($admin_role) ?>" disabled>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Email Address</label>
+                            <input type="email" id="emailInput" class="form-input" value="<?= htmlspecialchars($admin_email) ?>" disabled>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Phone Number</label>
+                            <div class="phone-wrapper">
+                                <span class="phone-prefix">+60</span>
+                                <input type="text" name="admin_phone" id="phoneInput" class="form-input phone-input" placeholder="123456789" value="<?= htmlspecialchars(preg_replace('/^\+60/', '', $admin_phone)) ?>" oninput="validatePhone()">
+                            </div>
+                            <span class="error" id="phoneErr"><?= $errors['phoneErr'] ?? '' ?></span>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" name="update_prof_info" class="form-btn">
+                                <i class="bi bi-check2"></i> Update Profile
+                            </button>
+                        </div>
+
+                    </form>
                 </div>
 
-              </form>
+                <!-- CARD 2: CHANGE PASSWORD -->
+                <div class="prof-card">
+                    <div class="prof-card-title">
+                        <i class="bi bi-shield-lock"></i> Security & Password
+                        <span class="card-badge">Credentials</span>
+                    </div>
+
+                    <div class="security-note">
+                        <strong>Password Requirements:</strong>
+                        <ul>
+                            <li>8 to 12 characters in length</li>
+                            <li>At least 1 uppercase (A-Z) & 1 lowercase (a-z)</li>
+                            <li>At least 1 digit (0-9) & 1 special character (!@#$%^&*...)</li>
+                        </ul>
+                    </div>
+
+                    <form method="post">
+
+                        <div class="form-group">
+                            <label>Current Password<span class="asterisk">*</span></label>
+                            <input type="password" name="current_pswd" id="currentPswd" class="form-input" placeholder="Enter current password" oninput="validatePassword()">
+                            <span class="error" id="currentPswdErr"><?= $errors['currentPswdErr'] ?? '' ?></span>
+                        </div>
+
+                        <div class="form-group">
+                            <label>New Password<span class="asterisk">*</span></label>
+                            <input type="password" name="new_pswd" id="newPswd" class="form-input" placeholder="Enter new secure password" oninput="validatePassword()">
+                            <span class="error" id="newPswdErr"><?= $errors['newPswdErr'] ?? '' ?></span>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Confirm New Password<span class="asterisk">*</span></label>
+                            <input type="password" name="confirm_pswd" id="confirmPswd" class="form-input" placeholder="Re-enter new password" oninput="validatePassword()">
+                            <span class="error" id="confirmPswdErr"><?= $errors['confirmPswdErr'] ?? '' ?></span>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" name="update_prof_pswd" class="form-btn">
+                                <i class="bi bi-shield-check"></i> Update Password
+                            </button>
+                        </div>
+
+                    </form>
+                </div>
+
             </div>
 
         </div>
@@ -464,33 +684,20 @@ body {
     </div>
 </div>
 
+<div id="toast" class="toast"></div>
+
 <script>
-// Listen for image input change (when user selects a file)
+// Image preview on file selection
 document.getElementById('imageInput').addEventListener('change', function(e) {
     const file = e.target.files[0];
-
     if (file) {
         const reader = new FileReader();
-
         reader.onload = function(event) {
             document.querySelector('.prof-info-pic').src = event.target.result;
         };
-
         reader.readAsDataURL(file);
     }
 });
-
-// Auto hide success messages after 3 seconds
-setTimeout(() => {
-    document.querySelectorAll('.success-auto-hide').forEach(el => {
-        el.style.transition = "opacity 0.5s";
-        el.style.opacity = "0";
-
-        setTimeout(() => {
-            el.remove();
-        }, 500);
-    });
-}, 3000);
 
 // Real time Name validation
 function validateName() {
@@ -519,7 +726,6 @@ function validatePhone() {
     }
 
     const regex = /^[0-9]{9,10}$/; 
-
     if (!regex.test(phone)) {
         err.innerText = "Enter 9-10 digits";
     } else {
@@ -537,27 +743,24 @@ function validatePassword() {
     const newErr = document.getElementById("newPswdErr");
     const confirmErr = document.getElementById("confirmPswdErr");
 
-    // current
     if (current === "") {
         currentErr.innerText = "Current password is required";
     } else {
         currentErr.innerText = "";
     }
 
-    // new password strength
     const strongRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_\-+=<>?]).{8,12}$/;
 
     if (newPwd === "") {
         newErr.innerText = "";
     } else if (!strongRegex.test(newPwd)) {
-        newErr.innerText = "Password must be 8–12 chars with atleast one uppercase letter(A-Z), one lowercase letter(a-z), one digit(0-9), and one special character(!@#$%^&*()_\-+=<>?).";
+        newErr.innerText = "Password must be 8–12 chars with at least one uppercase, one lowercase, one digit, and one special character.";
     } else if (current !== "" && newPwd === current) {
         newErr.innerText = "New password cannot be same as current";
     } else {
         newErr.innerText = "";
     }
 
-    // confirm
     if (confirm === "") {
         confirmErr.innerText = "";
     } else if (newPwd !== confirm) {
@@ -570,16 +773,28 @@ function validatePassword() {
 // Show toast
 function showToast(message, type = "success") {
     const toast = document.getElementById("toast");
-
     toast.textContent = message;
     toast.className = "toast show " + type;
 
     setTimeout(() => {
         toast.classList.remove("show");
-    }, 2500);
+    }, 3000);
 }
+
+// PHP Session Feedback
+<?php if (!empty($errors['updateProfInfoErr'])): ?>
+    showToast("<?= addslashes($errors['updateProfInfoErr']) ?>", "error");
+<?php endif; ?>
+<?php if (!empty($successes['updateProfInfoSucc'])): ?>
+    showToast("<?= addslashes($successes['updateProfInfoSucc']) ?>", "success");
+<?php endif; ?>
+<?php if (!empty($errors['updateProfPswdErr'])): ?>
+    showToast("<?= addslashes($errors['updateProfPswdErr']) ?>", "error");
+<?php endif; ?>
+<?php if (!empty($successes['updateProfPswdSucc'])): ?>
+    showToast("<?= addslashes($successes['updateProfPswdSucc']) ?>", "success");
+<?php endif; ?>
 </script>
 
-<div id="toast" class="toast"></div>
 </body>
 </html>

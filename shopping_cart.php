@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once 'include/config.php';
+require_once 'include/pricing_functions.php';
 
 if (!isset($_SESSION['CUSTOMER_ID'])) {
     header("Location: login.php");
@@ -45,12 +46,13 @@ if (isset($_GET['action']) && $_GET['action'] == 'delete') {
     $item_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
     if ($item_id > 0) {
         // delete related addons first due to foreign key constraint
-        mysqli_query($conn, "DELETE FROM cart_item_addon WHERE CART_ITEM_ID = $item_id");
-        $delete_sql = "DELETE FROM cart_item WHERE CART_ITEM_ID = $item_id";
-        if (mysqli_query($conn, $delete_sql)) {
-            header("Location: shopping_cart.php");
-            exit();
-        }
+               mysqli_query($conn, "DELETE cia FROM cart_item_addon cia
+            JOIN cart_item ci ON cia.CART_ITEM_ID = ci.CART_ITEM_ID
+            JOIN cart c ON ci.CART_ID = c.CART_ID
+            WHERE ci.CART_ITEM_ID = $item_id AND c.CUSTOMER_ID = $customer_id");
+        $delete_sql = "DELETE ci FROM cart_item ci
+            JOIN cart c ON ci.CART_ID = c.CART_ID
+            WHERE ci.CART_ITEM_ID = $item_id AND c.CUSTOMER_ID = $customer_id";
     }
 }
 
@@ -63,23 +65,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_selected'])) {
         $clean_ids = implode(',', $ids_array);
         
         if (!empty($clean_ids)) {
-            mysqli_query($conn, "DELETE FROM cart_item_addon WHERE CART_ITEM_ID IN ($clean_ids)");
-            $delete_all_sql = "DELETE FROM cart_item WHERE CART_ITEM_ID IN ($clean_ids)";
-            if (mysqli_query($conn, $delete_all_sql)) {
-                header("Location: shopping_cart.php");
-                exit();
-            }
+                mysqli_query($conn, "DELETE cia FROM cart_item_addon cia
+                JOIN cart_item ci ON cia.CART_ITEM_ID = ci.CART_ITEM_ID
+                JOIN cart c ON ci.CART_ID = c.CART_ID
+                WHERE ci.CART_ITEM_ID IN ($clean_ids) AND c.CUSTOMER_ID = $customer_id");
+            $delete_all_sql = "DELETE ci FROM cart_item ci
+                JOIN cart c ON ci.CART_ID = c.CART_ID
+                WHERE ci.CART_ITEM_ID IN ($clean_ids) AND c.CUSTOMER_ID = $customer_id";
         }
     }
 }
 
 // 3. fetch cart items for current user
-$cart_sql = "SELECT ci.*, p.PRODUCT_NAME, p.COVER_IMAGE, pv.VARIANT_LABEL as VARIANT_SIZE, pv.VARIANT_PRICE, pv.VARIANT_STOCK
+$cart_sql = "SELECT ci.*, p.PRODUCT_NAME, p.COVER_IMAGE, pv.VARIANT_LABEL as VARIANT_SIZE, pv.VARIANT_PRICE, pv.SALE_PRICE, pv.VARIANT_STOCK
         FROM cart_item ci
         JOIN cart c ON ci.CART_ID = c.CART_ID
         JOIN product p ON ci.PRODUCT_ID = p.PRODUCT_ID
         JOIN product_variant pv ON ci.VARIANT_ID = pv.VARIANT_ID
         WHERE c.CUSTOMER_ID = $customer_id
+          AND p.IS_DELETED = 0
+          AND pv.IS_DELETED = 0
         ORDER BY ci.CREATED_AT DESC";
 
 $cart_result = mysqli_query($conn, $cart_sql);
@@ -95,15 +100,16 @@ while ($row = mysqli_fetch_assoc($cart_result)){
     $row['VARIANT_SIZE'] = build_variant_display_label($conn, $row['VARIANT_ID'], $row['VARIANT_SIZE']);
 
     // query addons for this cart item
-    $addon_query = "SELECT cia.CART_ITEM_ADDON_ID, cia.QUANTITY,
-                       pa.PRODUCT_ADDON_ID, pa.ADDON_PRICE AS OVERRIDE_PRICE,
-                       ap.PRODUCT_NAME AS ADD_ON_NAME,
-                       apv.VARIANT_PRICE, apv.SALE_PRICE
+           $addon_query = "SELECT cia.CART_ITEM_ADDON_ID, cia.QUANTITY,
+                       pa.PRODUCT_ADDON_ID, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                       pa.ADDON_PRICE AS OVERRIDE_PRICE,
+                       ap.PRODUCT_NAME AS ADD_ON_NAME
                 FROM cart_item_addon cia 
                 JOIN product_addon pa ON cia.PRODUCT_ADD_ON_ID = pa.PRODUCT_ADDON_ID
                 JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
-                LEFT JOIN product_variant apv ON pa.ADDON_VARIANT_ID = apv.VARIANT_ID
-                WHERE cia.CART_ITEM_ID = $item_id";
+                WHERE cia.CART_ITEM_ID = $item_id
+                  AND pa.IS_DELETED = 0
+                  AND ap.IS_DELETED = 0";
         $addon_res = mysqli_query($conn, $addon_query);
 
         $addons = [];
@@ -112,13 +118,9 @@ while ($row = mysqli_fetch_assoc($cart_result)){
         if ($addon_res) {
             while ($addon = mysqli_fetch_assoc($addon_res)) {
                 // Resolve unit price: override price on product_addon, else variant sale/regular price
-                if ($addon['OVERRIDE_PRICE'] !== null) {
-                    $addon['ADD_ON_PRICE'] = floatval($addon['OVERRIDE_PRICE']);
-                } elseif (!empty($addon['SALE_PRICE']) && floatval($addon['SALE_PRICE']) > 0) {
-                    $addon['ADD_ON_PRICE'] = floatval($addon['SALE_PRICE']);
-                } else {
-                    $addon['ADD_ON_PRICE'] = floatval($addon['VARIANT_PRICE'] ?? 0);
-                }
+                $resolved = resolve_addon_price($conn, $addon);
+                if (!$resolved) continue;
+                $addon['ADD_ON_PRICE'] = $resolved['price'];
 
                 $addons[] = $addon;
                 // calculate total addon price for this item
@@ -129,11 +131,16 @@ while ($row = mysqli_fetch_assoc($cart_result)){
     
     $row['addons'] = $addons;
     // define the price of one set of this item (cake variant price + all addons price)
-    $row['SINGLE_SET_PRICE'] = $row['VARIANT_PRICE'] + $total_addon_price_per_item;
+        $unit_price = (!empty($row['SALE_PRICE']) && floatval($row['SALE_PRICE']) > 0)
+            ? floatval($row['SALE_PRICE'])
+            : floatval($row['VARIANT_PRICE']);
+           $row['UNIT_PRICE'] = $unit_price;
+        $row['ADDON_TOTAL'] = $total_addon_price_per_item;
+        $row['ROW_TOTAL'] = ($unit_price * $row['QUANTITY']) + $total_addon_price_per_item;
     
     $cart_items[] = $row;
     
-    $SUB_TOTAL += ($row['SINGLE_SET_PRICE'] * $row['QUANTITY']);
+    $SUB_TOTAL += $row['ROW_TOTAL'];
 }
 
 // 4. fetch available vouchers for this customer
@@ -633,7 +640,7 @@ $TOTAL_AMOUNT = $SUB_TOTAL;
                         <tr><td colspan="7" class="text-center">Your cart is empty.</td></tr> 
                     <?php else: ?>
                         <?php foreach($cart_items as $item): ?>
-                        <tr data-id="<?php echo $item['CART_ITEM_ID']; ?>" data-single-set-price="<?php echo $item['SINGLE_SET_PRICE']; ?>">
+                        <tr data-id="<?php echo $item['CART_ITEM_ID']; ?>" data-unit-price="<?php echo $item['UNIT_PRICE']; ?>" data-addon-total="<?php echo $item['ADDON_TOTAL']; ?>">
                             <td>
                                 <input type="checkbox" name="selected_items[]" class="item-checkbox" value="<?php echo $item['CART_ITEM_ID']; ?>" checked>
                             </td>
@@ -682,7 +689,7 @@ $TOTAL_AMOUNT = $SUB_TOTAL;
                                 <?php endif; ?>
                             </td>
                             <td class="item-price">
-                                RM <?php echo number_format($item['SINGLE_SET_PRICE'] * $item['QUANTITY'], 2); ?>
+                                RM <?php echo number_format($item['ROW_TOTAL'], 2); ?>
                             </td>
                             <td>
                                 <!--Edit and Delete Button-->
@@ -849,14 +856,14 @@ document.querySelectorAll('.qty-btn').forEach(button => {
 
         fetch('update_cart_quantity.php', { method: 'POST', body: formData })
         .then(res => res.text()) // accept plain text
-        .then(data => {
+                .then(data => {
             const result = data.trim();
-            // handle out of stock or over capacity response from server
+            // handle out of stock response from server
             if (result === "out_of_stock") {
-                alert("Sorry, this cake variant is out of stock!");
+                alert("Sorry, this item does not have enough stock!");
                 location.reload(); 
-            } else if (result === "out_of_capacity") {
-                alert("Sorry, our kitchen is fully booked for today!");
+            } else if (result === "error") {
+                alert("Something went wrong. Please try again.");
                 location.reload(); 
             } else if (result === "success") {
                 console.log("Quantity updated.");
@@ -872,9 +879,10 @@ document.querySelectorAll('.qty-btn').forEach(button => {
         document.querySelectorAll('.cart-table tbody tr[data-id]').forEach(row => {
             const checkbox = row.querySelector('.item-checkbox');
             if (checkbox && checkbox.checked) {
-                const singlePrice = parseFloat(row.getAttribute('data-single-set-price'));
+                const unitPrice = parseFloat(row.getAttribute('data-unit-price')) || 0;
+                const addonTotal = parseFloat(row.getAttribute('data-addon-total')) || 0;
                 const qty = parseInt(row.querySelector('.qty-input').value);
-                subtotal += (singlePrice * qty);
+                subtotal += (unitPrice * qty) + addonTotal;
             }
         });
 
@@ -918,10 +926,11 @@ document.querySelectorAll('.qty-btn').forEach(button => {
             const qtyInput = row.querySelector('.qty-input');
             
             // get the pre-calculated total price for this item set (cake variant price + all addon prices)
-            const singleSetPrice = parseFloat(row.getAttribute('data-single-set-price')) || 0;
+            const unitPrice = parseFloat(row.getAttribute('data-unit-price')) || 0;
+            const addonTotal = parseFloat(row.getAttribute('data-addon-total')) || 0;
             const qty = parseInt(qtyInput.value) || 1;
             
-            const rowTotal = singleSetPrice * qty;
+            const rowTotal = (unitPrice * qty) + addonTotal;
             
             // render the total price for this row (this will update if quantity changes or if addons are edited)
             row.querySelector('.item-price').innerText = 'RM ' + rowTotal.toFixed(2);

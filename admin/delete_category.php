@@ -2,12 +2,17 @@
 require_once("config.php");
 session_start();
 
+if (!isset($_SESSION['admin_id'])) {
+    echo "error";
+    exit;
+}
+
 if (!isset($_GET['category_id'])) {
     echo "error";
     exit;
 }
 
-$categoryId = $_GET['category_id'];
+$categoryId = (int)$_GET['category_id'];
 
 // Check exists
 $stmt = $conn->prepare("
@@ -26,12 +31,29 @@ if ($result->num_rows == 0) {
     exit;
 }
 
+// Check whether has any sub-category (If yes, cannot delete)
+$stmtChild = $conn->prepare("
+    SELECT COUNT(*) AS total
+    FROM category
+    WHERE PARENT_ID = ?
+    AND IS_DELETED = 0
+");
+
+$stmtChild->bind_param("i", $categoryId);
+$stmtChild->execute();
+$childRow = $stmtChild->get_result()->fetch_assoc();
+
+if ($childRow['total'] > 0) {
+    echo "error_has_children";
+    exit;
+}
+
 // Check whether has any product under this category (If yes, cannot delete)
 $stmt2 = $conn->prepare("
-    SELECT COUNT(*) AS total 
-    FROM product 
-    WHERE CATEGORY_ID = ? 
-    AND IS_DELETED = 0
+    SELECT COUNT(*) AS total
+    FROM product_category pc
+    JOIN product pr ON pr.PRODUCT_ID = pc.PRODUCT_ID AND pr.IS_DELETED = 0
+    WHERE pc.CATEGORY_ID = ?
 ");
 
 $stmt2->bind_param("i", $categoryId);

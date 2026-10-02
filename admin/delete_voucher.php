@@ -11,17 +11,10 @@ if (!isset($_GET['voucher_id'])) {
 
 $voucherId = (int)$_GET['voucher_id'];
 
-// Check exists
-$stmt = $conn->prepare("
-    SELECT VOUCHER_ID, VOUCHER_STATUS
-    FROM voucher
-    WHERE VOUCHER_ID = ?
-    AND IS_DELETED = 0
-");
-
+// 1. Check voucher exists
+$stmt = $conn->prepare("SELECT 1 FROM voucher WHERE VOUCHER_ID = ? AND IS_DELETED = 0");
 $stmt->bind_param("i", $voucherId);
 $stmt->execute();
-
 $result = $stmt->get_result();
 
 if ($result->num_rows == 0) {
@@ -29,18 +22,25 @@ if ($result->num_rows == 0) {
     exit;
 }
 
-$voucher = $result->fetch_assoc();
-
-// CHECK IF VOUCHER IS USED IN ORDER , If YES THEN CANNOT DELETE
-$stmt2 = $conn->prepare("
-    SELECT COUNT(*) AS total
-    FROM orders
+// 2. Check if any customer still holds an unused, unexpired copy
+$stmtInUse = $conn->prepare("
+    SELECT 1 FROM customer_voucher
     WHERE VOUCHER_ID = ?
+      AND USED_COUNT = 0
+      AND EXPIRY_DATE >= CURDATE()
+    LIMIT 1
 ");
+$stmtInUse->bind_param("i", $voucherId);
+$stmtInUse->execute();
+if ($stmtInUse->get_result()->num_rows > 0) {
+    echo "error_in_use";
+    exit;
+}
 
+// 3. Check if voucher already used in orders (kept for order-history integrity)
+$stmt2 = $conn->prepare("SELECT COUNT(*) AS total FROM orders WHERE VOUCHER_ID = ?");
 $stmt2->bind_param("i", $voucherId);
 $stmt2->execute();
-
 $used = $stmt2->get_result()->fetch_assoc();
 
 if ($used['total'] > 0) {
@@ -48,15 +48,12 @@ if ($used['total'] > 0) {
     exit;
 }
 
-// If no errors, delete
+// 4. If no errors, soft-delete
 $stmt3 = $conn->prepare("
     UPDATE voucher
-    SET 
-        IS_DELETED = 1,
-        UPDATED_AT = CURRENT_TIMESTAMP()
+    SET IS_DELETED = 1, UPDATED_AT = CURRENT_TIMESTAMP()
     WHERE VOUCHER_ID = ?
 ");
-
 $stmt3->bind_param("i", $voucherId);
 
 if ($stmt3->execute()) {
@@ -64,6 +61,5 @@ if ($stmt3->execute()) {
 } else {
     echo "error";
 }
-
 exit;
 ?>

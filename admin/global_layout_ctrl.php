@@ -29,15 +29,30 @@
     height: 30px;
 }
 
-.global-layout.collapsed .brand-text {
-    opacity: 0;
+.global-layout.collapsed .sidebar-brand {
+    justify-content: center;
+    padding: 14px 4px;
 }
 
-.global-layout.collapsed .sidebar-menu a i{
-    font-size: 20px;
+.global-layout.collapsed .brand-text {
+    display: none;
+}
+
+.global-layout.collapsed .sidebar-menu a {
+    justify-content: center;
+    padding: 9px 0;
+}
+
+.global-layout.collapsed .sidebar-menu a i {
+    font-size: 18px;
+    width: auto;
 }
 
 .global-layout.collapsed .sidebar-menu .sidebar-text {
+    display: none;
+}
+
+.global-layout.collapsed .sub-sidebar-btn {
     display: none;
 }
 

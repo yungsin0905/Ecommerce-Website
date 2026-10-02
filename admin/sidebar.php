@@ -9,46 +9,72 @@
    $current_page = basename($_SERVER['PHP_SELF']);
 ?>
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <style>
 .sidebar-cont {
    width: var(--sidebar-width);
    height: 100vh;
-   background-color: var(--primary-white);
-   box-shadow: 0 2px 6px rgba(0,0,0,0.2); 
+   background-color: #ffffff;
+   border-right: 1px solid #edf0f3;
+   box-shadow: 2px 0 20px rgba(17, 24, 39, 0.03); 
    position: fixed;
    z-index: 1001;
    top: 0;
    left: 0;
+   transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .sidebar2 {
-   height:100vh;
+   height: 100vh;
    width: 100%;
-   padding: 0 8px;
+   padding: 0 6px;
    overflow-y: auto;
    overflow-x: hidden;
 }
 
+.sidebar2::-webkit-scrollbar {
+   width: 4px;
+}
+.sidebar2::-webkit-scrollbar-track {
+   background: transparent;
+}
+.sidebar2::-webkit-scrollbar-thumb {
+   background: #e2e8f0;
+   border-radius: 9999px;
+}
+.sidebar2::-webkit-scrollbar-thumb:hover {
+   background: #cbd5e1;
+}
+
 .sidebar-ctrl-btn {
-   background: var(--primary-dark);
+   background: #18181b;
    position: absolute;
-   top: 8px;
-   right: -15px;
-   width: 30px;
-   height: 30px;
-   border-radius: 50px;
-   border: none;
-   padding-top: 3px;
+   top: 18px;
+   right: -13px;
+   width: 26px;
+   height: 26px;
+   border-radius: 9999px;
+   border: 2px solid #ffffff;
    cursor: pointer; 
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+   transition: all 0.2s ease;
+   z-index: 1002;
+   padding: 0;
 }
 
 .icon-expand,
 .icon-collapse {
-   position: absolute;
-   top: 50%;
-   left: 50%;
-   transform: translate(-50%, -50%);
+   color: #ffffff;
+   font-size: 11px;
+   display: flex;
+   align-items: center;
+   justify-content: center;
 }
 
 .icon-expand {
@@ -60,87 +86,153 @@
 }
 
 .sidebar-ctrl-btn:hover {
-   transform: scale(1.1);
+   background: #d4f938;
+   transform: scale(1.12);
+   box-shadow: 0 4px 12px rgba(212, 249, 56, 0.45);
 }
 
-.sidebar-logo {
-   margin-top: 10px;
-   height: 55px;
+.sidebar-ctrl-btn:hover .icon-expand,
+.sidebar-ctrl-btn:hover .icon-collapse {
+   color: #18181b;
 }
 
 .sidebar-brand {
    display: flex;
    align-items: center;
    gap: 10px;
+   padding: 16px 12px 14px;
+   border-bottom: 1px solid #f1f3f6;
+   margin-bottom: 10px;
+}
+
+.sidebar-logo {
+   height: 38px;
+   width: auto;
+   border-radius: 10px;
+   object-fit: contain;
 }
 
 .brand-text {
-   font-size: 18px;
-   font-weight: 600;
-   color: #824444;
-   text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
-   padding-top: 10px;
+   font-family: 'Plus Jakarta Sans', sans-serif;
+   font-size: 15px;
+   font-weight: 800;
+   color: #111827;
+   letter-spacing: -0.3px;
+   white-space: nowrap;
+   overflow: hidden;
+   text-overflow: ellipsis;
 }
 
 .sidebar-menu {
    list-style-type: none;
-   margin-top: 20px;
+   margin: 0;
+   padding: 4px 4px 30px;
 }
 
-.sidebar-menu li{
-   padding: 10px 5px;
-}
-
-.sidebar-menu li:hover {
-   background: var(--primary-light);
-   border-radius: 5px;
+.sidebar-menu li {
+   padding: 0;
+   margin-bottom: 3px;
+   border-radius: 9999px;
+   transition: all 0.2s ease;
 }
 
 .sidebar-menu li a {
+   display: flex;
+   align-items: center;
+   gap: 10px;
+   padding: 8.5px 14px;
+   border-radius: 9999px;
    text-decoration: none;
-   color: #3b3b3b;
-   font-size: 17px;
+   color: #71717a;
+   font-family: 'Plus Jakarta Sans', sans-serif;
+   font-size: 13.5px;
+   font-weight: 600;
+   transition: all 0.2s ease;
 }
 
 .sidebar-icon {
-   margin-right: 10px;
+   font-size: 15.5px;
+   color: #8e95a5;
+   width: 20px;
+   text-align: center;
+   flex-shrink: 0;
+   transition: all 0.2s ease;
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+}
+
+.sidebar-menu li:hover {
+   background: #f4f5f8;
+}
+
+.sidebar-menu li:hover a {
+   color: #111827;
+}
+
+.sidebar-menu li:hover .sidebar-icon {
+   color: #111827;
+}
+
+/* Active Menu Item (Neon Lime Capsule) */
+.sidebar-menu li.active {
+   background: #d4f938 !important;
+   box-shadow: 0 4px 14px rgba(212, 249, 56, 0.35);
+}
+
+.sidebar-menu li.active a {
+   color: #111827 !important;
+   font-weight: 800 !important;
+}
+
+.sidebar-menu li.active .sidebar-icon {
+   color: #111827 !important;
+   font-weight: 800;
+}
+
+.sidebar-menu li.active:hover {
+   background: #d4f938 !important;
 }
 
 .sub-sidebar-btn {
-   float: right;
-   transition: 0.2s; 
+   margin-left: auto;
+   font-size: 9px;
+   transition: transform 0.2s ease; 
+   opacity: 0.6;
 }
 
-/*Sub sidebar menu control*/
-.sidebar-menu .active {
-   background-color: var(--primary-light);
-   border-radius: 5px;
-}
-
+/* Sub sidebar menu control */
 .sub-sidebar-menu {
    display: none;
    list-style: none;
-   padding-left: 25px;
-   margin-top: 5px;
+   padding-left: 20px;
+   margin-top: 3px;
+   margin-bottom: 4px;
 }
 
 .sub-sidebar-menu li {
-   padding: 8px 5px;
-}
-
-.sub-sidebar-menu li.sub-active {
-   background-color: rgba(0, 0, 0, 0.05); 
-   border-radius: 5px;
-}
-
-.sub-sidebar-menu li.sub-active a {
-   color: #824444; 
-   font-weight: 600;
+   padding: 0;
+   margin-bottom: 2px;
 }
 
 .sub-sidebar-menu li a {
-   font-size: 15px;
-   color: #555;
+   padding: 6px 12px;
+   font-size: 12.5px;
+   color: #71717a;
+   font-weight: 500;
+   border-radius: 9999px;
+}
+
+.sub-sidebar-menu li:hover a {
+   background: #f4f5f8;
+   color: #111827;
+}
+
+.sub-sidebar-menu li.sub-active a {
+   background: #18181b !important;
+   color: #d4f938 !important;
+   font-weight: 700;
+   border-radius: 9999px;
 }
 
 .has-submenu.open .sub-sidebar-menu {
@@ -149,12 +241,6 @@
 
 .has-submenu.open .sub-sidebar-btn {
    transform: rotate(90deg);
-}
-
-.icon-expand,
-.icon-collapse {
-    color: var(--primary-white);
-    font-size: 13px;
 }
 </style>
 

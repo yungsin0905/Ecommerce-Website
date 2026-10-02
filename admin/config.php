@@ -18,7 +18,7 @@ if ($host_name == 'localhost' || $host_name == '127.0.0.1') {
     error_reporting(E_ALL);
     $servername = "localhost";
     $username   = "makerklu_wongyungsin";
-    $password   = "Wy$173183";
+    $password   = 'Wy$173183';
     $dbname     = "makerklu_cytron"; 
 }
 
@@ -27,4 +27,7 @@ $conn = new mysqli($servername, $username, $password, $dbname);
 if ($conn->connect_error) {
     die("Database connection failed: " . $conn->connect_error);
 } 
+
+date_default_timezone_set('Asia/Kuala_Lumpur');
+$conn->query("SET time_zone = '+08:00'");
 ?>

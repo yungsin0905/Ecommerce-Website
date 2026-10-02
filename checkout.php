@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once 'include/config.php';
+require_once 'include/pricing_functions.php';
 
 //Redirect to login page if user is not authenticated
 if (!isset($_SESSION['CUSTOMER_ID'])) {
@@ -56,7 +57,7 @@ function get_variant_row($conn, $variant_id) {
                    pv.SALE_PRICE, pv.VARIANT_STOCK, p.PRODUCT_NAME, p.COVER_IMAGE
             FROM product_variant pv
             JOIN product p ON pv.PRODUCT_ID = p.PRODUCT_ID
-            WHERE pv.VARIANT_ID = $variant_id AND p.IS_DELETED = 0 LIMIT 1";
+            WHERE pv.VARIANT_ID = $variant_id AND p.IS_DELETED = 0 AND pv.IS_DELETED = 0 LIMIT 1";
     $res = mysqli_query($conn, $sql);
     return $res ? mysqli_fetch_assoc($res) : null;
 }
@@ -74,6 +75,7 @@ function get_addons_for_cart_item($conn, $cart_item_id) {
     $cart_item_id = intval($cart_item_id);
     $sql = "SELECT cia.CART_ITEM_ADDON_ID, cia.QUANTITY, cia.PRODUCT_ADD_ON_ID,
                    pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                   pa.ADDON_PRICE AS OVERRIDE_PRICE,
                    ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
             FROM cart_item_addon cia
             JOIN product_addon pa ON cia.PRODUCT_ADD_ON_ID = pa.PRODUCT_ADDON_ID
@@ -84,28 +86,21 @@ function get_addons_for_cart_item($conn, $cart_item_id) {
     $res = mysqli_query($conn, $sql);
 
     $addons = [];
-    while ($row = mysqli_fetch_assoc($res)) {
-
-        // Always price the addon from its own product's variant, not ADDON_PRICE
-        $variant = get_addon_variant_row($conn, $row['ADDON_PRODUCT_ID'], $row['ADDON_VARIANT_ID']);
-
-        $unit_price    = 0;
-        $variant_label = '';
-        if ($variant) {
-            $unit_price    = (!empty($variant['SALE_PRICE'])) ? floatval($variant['SALE_PRICE']) : floatval($variant['VARIANT_PRICE']);
-            $variant_label = $variant['VARIANT_LABEL'];
-        }
+    while ($res && $row = mysqli_fetch_assoc($res)) {
+        $resolved = resolve_addon_price($conn, $row);
+        if (!$resolved) continue;
 
         $display_name = $row['ADDON_PRODUCT_NAME'];
-        if (!empty($variant_label)) {
-            $display_name .= ' - ' . $variant_label;
+        if (!empty($resolved['label'])) {
+            $display_name .= ' - ' . $resolved['label'];
         }
 
         $addons[] = [
             'PRODUCT_ADDON_ID' => $row['PRODUCT_ADD_ON_ID'],
             'ADDON_NAME'       => $display_name,
-            'ADDON_PRICE'      => $unit_price,
+            'ADDON_PRICE'      => $resolved['price'],
             'QUANTITY'         => intval($row['QUANTITY']),
+            'STOCK'            => $resolved['stock'],
         ];
     }
     return $addons;
@@ -118,23 +113,6 @@ function get_addons_for_cart_item($conn, $cart_item_id) {
  * every product must have at least one product_variant row to carry a price,
  * even products without meaningful options.
  */
-function get_addon_variant_row($conn, $addon_product_id, $addon_variant_id) {
-    $addon_product_id = intval($addon_product_id);
-
-    if (!empty($addon_variant_id)) {
-        $variant_id = intval($addon_variant_id);
-        $sql = "SELECT VARIANT_ID, VARIANT_LABEL, VARIANT_PRICE, SALE_PRICE
-                FROM product_variant
-                WHERE VARIANT_ID = $variant_id AND IS_DELETED = 0 LIMIT 1";
-    } else {
-        $sql = "SELECT VARIANT_ID, VARIANT_LABEL, VARIANT_PRICE, SALE_PRICE
-                FROM product_variant
-                WHERE PRODUCT_ID = $addon_product_id AND IS_DELETED = 0
-                ORDER BY VARIANT_ID ASC LIMIT 1";
-    }
-    $res = mysqli_query($conn, $sql);
-    return $res ? mysqli_fetch_assoc($res) : null;
-}
 
 //4. buy now mode, read from session
 if (empty($selected_item_ids) && isset($_SESSION['checkout_mode']) && $_SESSION['checkout_mode'] === 'buynow') {
@@ -164,8 +142,10 @@ if (empty($selected_item_ids) && isset($_SESSION['checkout_mode']) && $_SESSION[
             foreach (($item['selected_addons'] ?? []) as $product_addon_id) {
                 $product_addon_id = intval(trim($product_addon_id));
                 $aqty = intval($item['addon_qtys'][$product_addon_id] ?? 1);
+                if ($product_addon_id <= 0 || $aqty <= 0) continue;
 
                 $addon_sql = "SELECT pa.PRODUCT_ADDON_ID, pa.ADDON_PRODUCT_ID, pa.ADDON_VARIANT_ID,
+                                     pa.ADDON_PRICE AS OVERRIDE_PRICE,
                                      ap.PRODUCT_NAME AS ADDON_PRODUCT_NAME
                               FROM product_addon pa
                               JOIN product ap ON pa.ADDON_PRODUCT_ID = ap.PRODUCT_ID
@@ -175,18 +155,17 @@ if (empty($selected_item_ids) && isset($_SESSION['checkout_mode']) && $_SESSION[
                 $addon_row = mysqli_fetch_assoc($addon_res);
 
                 if ($addon_row) {
-                    // Always price the addon from its own product's variant, not ADDON_PRICE
-                    $variant       = get_addon_variant_row($conn, $addon_row['ADDON_PRODUCT_ID'], $addon_row['ADDON_VARIANT_ID']);
-                    $addon_unit_price = 0;
-                    $variant_label    = '';
-                    if ($variant) {
-                        $addon_unit_price = (!empty($variant['SALE_PRICE'])) ? floatval($variant['SALE_PRICE']) : floatval($variant['VARIANT_PRICE']);
-                        $variant_label    = $variant['VARIANT_LABEL'];
-                    }
+                    $resolved = resolve_addon_price($conn, $addon_row);
+                    if (!$resolved) continue;
+                    $addon_unit_price = $resolved['price'];
 
+                    if ($aqty > $resolved['stock']) {
+                        echo "<script>alert('Sorry, add-on \"" . addslashes($addon_row['ADDON_PRODUCT_NAME']) . "\" does not have enough stock!'); window.location.href='shopping_cart.php';</script>";
+                        exit;
+                    }
                     $display_name = $addon_row['ADDON_PRODUCT_NAME'];
-                    if (!empty($variant_label)) {
-                        $display_name .= ' - ' . $variant_label;
+                    if (!empty($resolved['label'])) {
+                        $display_name .= ' - ' . $resolved['label'];
                     }
 
                     $row['addons'][] = [
@@ -221,13 +200,17 @@ if (!empty($selected_item_ids)) {
     $ids_string = implode(',', array_map('intval', $selected_item_ids));
 
     // Fetch product + variant details
-    $sql = "SELECT ci.*, 
+        $sql = "SELECT ci.*, 
                    p.PRODUCT_NAME, p.COVER_IMAGE,
                    pv.VARIANT_LABEL, pv.VARIANT_PRICE, pv.SALE_PRICE, pv.VARIANT_STOCK
             FROM cart_item ci
-            LEFT JOIN product p ON ci.PRODUCT_ID = p.PRODUCT_ID
-            LEFT JOIN product_variant pv ON ci.VARIANT_ID = pv.VARIANT_ID
-            WHERE ci.CART_ITEM_ID IN ($ids_string)";
+            INNER JOIN cart c ON ci.CART_ID = c.CART_ID
+            INNER JOIN product p ON ci.PRODUCT_ID = p.PRODUCT_ID
+            INNER JOIN product_variant pv ON ci.VARIANT_ID = pv.VARIANT_ID
+            WHERE ci.CART_ITEM_ID IN ($ids_string)
+              AND c.CUSTOMER_ID = $customer_id
+              AND p.IS_DELETED = 0
+              AND pv.IS_DELETED = 0";
 
     $result = mysqli_query($conn, $sql);
 
@@ -247,7 +230,11 @@ if (!empty($selected_item_ids)) {
 
         // Fetch add-ons for the item via the new product_addon structure
         $row['addons'] = get_addons_for_cart_item($conn, $row['CART_ITEM_ID']);
-        foreach ($row['addons'] as $addon) {
+                foreach ($row['addons'] as $addon) {
+            if ($addon['QUANTITY'] > $addon['STOCK']) {
+                echo "<script>alert('Sorry, add-on \"" . addslashes($addon['ADDON_NAME']) . "\" does not have enough stock!'); window.location.href='shopping_cart.php';</script>";
+                exit;
+            }
             $SUB_TOTAL += $addon['ADDON_PRICE'] * $addon['QUANTITY'];
         }
 
@@ -256,6 +243,11 @@ if (!empty($selected_item_ids)) {
 
         $cart_items[] = $row;
     }
+}
+
+if (empty($cart_items) || (!empty($selected_item_ids) && count($cart_items) < count(array_unique($selected_item_ids)))) {
+    echo "<script>alert('Some items in your cart are no longer available.'); window.location.href='shopping_cart.php';</script>";
+    exit;
 }
 
 // 7. Get customer-specific vouchers

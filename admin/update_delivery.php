@@ -1,6 +1,11 @@
 <?php
 require_once("config.php");
 
+if (!isset($_SESSION['admin_id'])) {
+    echo "error";
+    exit;
+}
+
 date_default_timezone_set('Asia/Kuala_Lumpur'); 
 $conn->query("SET time_zone = '+08:00'");
 

@@ -19,7 +19,7 @@ if ($host_name == 'localhost' || $host_name == '127.0.0.1') {
     error_reporting(E_ALL);
     $servername = "localhost";
     $username   = "makerklu_wongyungsin";
-    $password   = "Wy$173183";
+    $password   = 'Wy$173183';
     $dbname     = "makerklu_cytron"; 
 }
 
@@ -45,29 +45,31 @@ function assignTierVouchers($conn, $customer_id, $new_tier_id) {
 
         // sent new tier vouchers (skip auto-generated monthly rewards, those are per-customer)
     $tier_vouchers = mysqli_query($conn, "
-        SELECT VOUCHER_ID FROM voucher
-        WHERE TIER_ID = $new_tier_id
-        AND VOUCHER_TYPE = 'Tier'
-          AND VOUCHER_STATUS = 'Active'
-          AND IS_DELETED = 0
-          AND VOUCHER_CODE NOT LIKE 'AUTO-%'
+    SELECT VOUCHER_ID, START_DATE FROM voucher
+    WHERE TIER_ID = $new_tier_id
+      AND VOUCHER_TYPE = 'Tier'
+      AND VOUCHER_STATUS = 'Active'
+      AND IS_DELETED = 0
+      AND VOUCHER_CODE NOT LIKE 'AUTO-%'
+");
+
+while ($v = mysqli_fetch_assoc($tier_vouchers)) {
+    $voucher_id = (int)$v['VOUCHER_ID'];
+    $start      = mysqli_real_escape_string($conn, $v['START_DATE']);
+
+    $exists = mysqli_query($conn, "
+        SELECT CUSTOMER_VOUCHER_ID FROM customer_voucher
+        WHERE CUSTOMER_ID = $customer_id AND VOUCHER_ID = $voucher_id
     ");
 
-    while ($v = mysqli_fetch_assoc($tier_vouchers)) {
-        $voucher_id = $v['VOUCHER_ID'];
-
-        $exists = mysqli_query($conn, "
-            SELECT CUSTOMER_VOUCHER_ID FROM customer_voucher
-            WHERE CUSTOMER_ID = $customer_id AND VOUCHER_ID = $voucher_id
+    if (mysqli_num_rows($exists) === 0) {
+        mysqli_query($conn, "
+            INSERT INTO customer_voucher (CUSTOMER_ID, VOUCHER_ID, USED_COUNT, CLAIMED_AT, EXPIRY_DATE)
+            VALUES ($customer_id, $voucher_id, 0, NOW(),
+                    DATE_ADD(GREATEST(NOW(), '$start'), INTERVAL 1 MONTH))
         ");
-
-        if (mysqli_num_rows($exists) === 0) {
-            mysqli_query($conn, "
-                INSERT INTO customer_voucher (CUSTOMER_ID, VOUCHER_ID, USED_COUNT, CLAIMED_AT, EXPIRY_DATE)
-                VALUES ($customer_id, $voucher_id, 0, NOW(), DATE_ADD(NOW(), INTERVAL 3 MONTH))
-            ");
-        }
     }
+}
 }
 
 // send email function
