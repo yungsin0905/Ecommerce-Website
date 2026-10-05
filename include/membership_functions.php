@@ -93,9 +93,13 @@ function check_and_process_membership($conn, $customer_id) {
     // --- 2. Monthly tier voucher (based on the up-to-date tier) ---
     process_monthly_tier_voucher($conn, $customer_id, $customer, $today);
 
-    // --- 3. Milestone window expiry ---
+       // --- 3. Milestone window expiry ---
     process_milestone_window($conn, $customer_id, $customer, $today);
-        // --- 4. Voucher start-date notifications ---
+
+    // --- 4. Public vouchers for new / missed customers ---
+    assignPublicVouchers($conn, $customer_id);
+
+    // --- 5. Voucher start-date notifications ---
     process_voucher_start_notifications($conn, $customer_id);
 }
 
@@ -269,4 +273,24 @@ function process_voucher_start_notifications($conn, $customer_id) {
 
         notify_customer($conn, $customer_id, 'Voucher', intval($row['VOUCHER_ID']), $msg);
     }
+}
+/**
+ * 补发 Public voucher：新客户、或创建 voucher 时还不存在的客户
+ */
+function assignPublicVouchers($conn, $customer_id) {
+    $customer_id = intval($customer_id);
+    mysqli_query($conn, "
+        INSERT INTO customer_voucher (CUSTOMER_ID, VOUCHER_ID, USED_COUNT, EXPIRY_DATE)
+        SELECT $customer_id, v.VOUCHER_ID, 0, DATE(v.EXPIRY_DATE)
+        FROM voucher v
+        WHERE v.VOUCHER_TYPE = 'Public'
+          AND v.VOUCHER_STATUS = 'Active'
+          AND v.IS_DELETED = 0
+          AND v.VOUCHER_CODE NOT LIKE 'AUTO-%'
+          AND v.EXPIRY_DATE >= NOW()
+          AND NOT EXISTS (
+              SELECT 1 FROM customer_voucher cv
+              WHERE cv.CUSTOMER_ID = $customer_id AND cv.VOUCHER_ID = v.VOUCHER_ID
+          )
+    ");
 }

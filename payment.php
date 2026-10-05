@@ -280,7 +280,7 @@ if ($voucher_result) {
         if (!empty($v_row['CUSTOMER_EXPIRY']) &&
             $v_row['CUSTOMER_EXPIRY'] !== '0000-00-00 00:00:00' &&
             $v_row['CUSTOMER_EXPIRY'] !== '0000-00-00') {
-            $cv_expiry = new DateTime($v_row['CUSTOMER_EXPIRY']);
+            $cv_expiry = new DateTime(substr($v_row['CUSTOMER_EXPIRY'], 0, 10) . ' 23:59:59');
             if ($today > $cv_expiry) continue;
         }
 

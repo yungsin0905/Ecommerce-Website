@@ -221,6 +221,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_check_code'])) 
 try {
     if (!$stmt->execute()) throw new Exception("Update failed");
 
+    if ($voucherType === 'Public') {
+        $newPub = date('Y-m-d', strtotime($expiry));
+        $updPub = $conn->prepare("UPDATE customer_voucher SET EXPIRY_DATE = ? WHERE VOUCHER_ID = ? AND USED_COUNT = 0");
+        $updPub->bind_param("si", $newPub, $voucherId);
+        if (!$updPub->execute()) throw new Exception("Expiry sync failed");
+    }
         if ($voucherType === 'Tier' && !$isStarted && strtotime($start) !== strtotime($voucher['START_DATE'])) {
         $newClaimExpiry = date('Y-m-d', strtotime('+1 month', strtotime($start)));
         $upd = $conn->prepare("UPDATE customer_voucher SET EXPIRY_DATE = ? WHERE VOUCHER_ID = ? AND USED_COUNT = 0");
@@ -324,7 +330,7 @@ body {
     margin-bottom: 20px;
 }
 
-.form-back-link:hover {
+.form-back-link i:hover, .form-back-link:hover {
     background: var(--dark-pill);
     color: #ffffff !important;
     border-color: var(--dark-pill);
@@ -378,6 +384,10 @@ body {
     align-items: center;
     justify-content: center;
     font-weight: 700;
+}
+
+.badge-arrow i {
+    color: var(--accent-lime);
 }
 
 .dash-title {
@@ -601,6 +611,9 @@ body {
     box-shadow: 0 4px 14px rgba(24, 24, 27, 0.15);
     font-family: var(--font-heading);
 }
+.form-btn i{
+     color: #ffffff;
+}
 
 .form-btn:hover {
     background: #000000;
@@ -819,7 +832,7 @@ body {
 
             <div class="form-actions">
                 <button type="submit" class="form-btn">
-                    <i class="bi bi-check2"></i> Save Changes
+                     Save Changes
                 </button>
             </div>
 

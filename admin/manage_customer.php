@@ -17,13 +17,22 @@ $status = $_GET['status'] ?? '';
 $tier_id = isset($_GET['tier']) && $_GET['tier'] !== '' ? (int)$_GET['tier'] : '';
 
 // sorting
-$sort = $_GET['sort'] ?? 'CREATED_AT';
+$sort  = $_GET['sort'] ?? 'CREATED_AT';
 $order = $_GET['order'] ?? 'DESC';
 
-$allowedSort = ['CUSTOMER_ID', 'CREATED_AT', 'CUSTOMER_NAME', 'TOTAL_SPENT', 'WALLET_BALANCE'];
-$allowedOrder = ['ASC', 'DESC'];
+$sortMap = [
+    'CUSTOMER_ID'         => 'c.CUSTOMER_ID',
+    'CREATED_AT'          => 'c.CREATED_AT',
+    'CUSTOMER_NAME'       => 'c.CUSTOMER_NAME',
+    'TOTAL_SPENT'         => 'c.TOTAL_SPENT',
+    'WALLET_BALANCE'      => 'c.WALLET_BALANCE',
+    'QUARTER_SPENT'       => 'c.QUARTER_SPENT',
+    'TIER_EXPIRY'         => 'c.TIER_WINDOW_START',        // 窗口开始越早 = 越早到期
+    'MILESTONE_REMAINING' => '(1000 - c.MILESTONE_SPENT)', // 还差多少
+];
 
-if (!in_array($sort, $allowedSort)) $sort = 'CREATED_AT';
+$allowedOrder = ['ASC', 'DESC'];
+if (!isset($sortMap[$sort])) $sort = 'CREATED_AT';
 if (!in_array($order, $allowedOrder)) $order = 'DESC';
 
 // pagination
@@ -101,11 +110,14 @@ $totalPages = max(1, ceil($totalRows / $limit));
 
 // fetch customer list (With Filter, Sort, Pagination)
 $listSql = "
-SELECT c.*, t.TIER_NAME
+SELECT c.CUSTOMER_ID, c.CUSTOMER_NAME, c.EMAIL, c.PHONE, c.STATUS,
+       c.TOTAL_SPENT, c.WALLET_BALANCE, c.CREATED_AT,
+       c.QUARTER_SPENT, c.TIER_WINDOW_START, c.MILESTONE_SPENT,
+       t.TIER_NAME
 FROM customer c
 LEFT JOIN membership_tier t ON c.TIER_ID = t.TIER_ID
 $whereSql
-ORDER BY $sort $order
+ORDER BY {$sortMap[$sort]} $order
 LIMIT ? OFFSET ?
 ";
 
@@ -131,6 +143,16 @@ function buildUrl($page,$search,$status,$tier_id,$limit,$sort,$order) {
         "sort"=>$sort,
         "order"=>$order
     ]);
+}
+
+function sortTh($class, $label, $col, $sort, $order, $search, $status, $tier_id, $limit) {
+    $next   = ($sort == $col && $order == 'ASC') ? 'DESC' : 'ASC';
+    $active = ($sort == $col) ? 'active-sort ' . strtolower($order) : '';
+    $url    = htmlspecialchars(buildUrl(1, $search, $status, $tier_id, $limit, $col, $next));
+    return '<th class="'.$class.'"><a class="sort-link '.$active.'" href="'.$url.'">'
+         . '<span>'.$label.'</span>'
+         . '<span class="sort-icons"><span class="up"><i class="bi bi-chevron-up"></i></span>'
+         . '<span class="down"><i class="bi bi-chevron-down"></i></span></span></a></th>';
 }
 ?>
 
@@ -209,6 +231,9 @@ function buildUrl($page,$search,$status,$tier_id,$limit,$sort,$order) {
                         <label><input type="checkbox" checked data-col="tier">Tier</label>
                         <label><input type="checkbox" checked data-col="spent">Total Spent</label>
                         <label><input type="checkbox" checked data-col="balance">Wallet Balance</label>
+                        <label><input type="checkbox" checked data-col="quarter">Quarter Spent</label>
+                        <label><input type="checkbox" checked data-col="expiry">Tier Expiry</label>
+                        <label><input type="checkbox" checked data-col="milestone">RM1000 Reward</label>
                         <label><input type="checkbox" checked data-col="status">Status</label>
                         <label><input type="checkbox" checked data-col="since">Since</label>
                         <button id="reset-col-btn" title="Reset Columns">Reset</button>
@@ -280,6 +305,10 @@ function buildUrl($page,$search,$status,$tier_id,$limit,$sort,$order) {
                                 </a>
                             </th>
 
+                            <?= sortTh('quarter',   'Quarter Spent',   'QUARTER_SPENT',       $sort,$order,$search,$status,$tier_id,$limit) ?>
+                            <?= sortTh('expiry',    'Tier Expiry',     'TIER_EXPIRY',         $sort,$order,$search,$status,$tier_id,$limit) ?>
+                            <?= sortTh('milestone', 'RM1000 Reward',   'MILESTONE_REMAINING', $sort,$order,$search,$status,$tier_id,$limit) ?>
+
                             <th class="status">Status</th>
 
                             <th class="since">
@@ -348,6 +377,48 @@ function buildUrl($page,$search,$status,$tier_id,$limit,$sort,$order) {
 
                                 <td class="balance">
                                     <?php echo htmlspecialchars($row['WALLET_BALANCE']); ?>
+                                </td>
+
+                                <?php
+                                    // 等级到期日 = TIER_WINDOW_START + 3 个月
+                                    $expiryText = 'N/A';
+                                    $expiryNote = '';
+                                    $expiryColor = '';
+                                    if (!empty($row['TIER_WINDOW_START'])) {
+                                        $exp = new DateTime($row['TIER_WINDOW_START']);
+                                        $exp->modify('+3 months');
+                                        $daysLeft = (int)(new DateTime('today'))->diff($exp)->format('%r%a');
+                                        $expiryText = $exp->format('d M Y');
+
+                                        if ($daysLeft < 0) {
+                                            $expiryNote  = 'Pending review';
+                                            $expiryColor = '#c0392b';
+                                        } elseif ($daysLeft <= 7) {
+                                            $expiryNote  = $daysLeft . ' day(s) left';
+                                            $expiryColor = '#d68910';
+                                        } else {
+                                            $expiryNote  = $daysLeft . ' days left';
+                                        }
+                                    }
+
+                                    // 距离 RM1000 reward 还差多少
+                                    $msSpent     = (float)$row['MILESTONE_SPENT'];
+                                    $msRemaining = max(0, 1000 - $msSpent);
+                                ?>
+                                <td class="quarter">RM <?= number_format($row['QUARTER_SPENT'], 2) ?></td>
+
+                                <td class="expiry">
+                                    <?= $expiryText ?>
+                                    <?php if ($expiryNote): ?>
+                                        <br><small style="<?= $expiryColor ? "color:$expiryColor;font-weight:600;" : 'color:#888;' ?>">
+                                            <?= htmlspecialchars($expiryNote) ?>
+                                        </small>
+                                    <?php endif; ?>
+                                </td>
+
+                                <td class="milestone">
+                                    RM <?= number_format($msRemaining, 2) ?> left
+                                    <br><small style="color:#888;">RM <?= number_format($msSpent, 2) ?> / 1,000</small>
                                 </td>
 
                                 <td class="status">

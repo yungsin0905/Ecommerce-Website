@@ -2,12 +2,6 @@
 require_once("config.php");
 session_start();
 
-// email
-require 'include/vendor/Exception.php';
-require 'include/vendor/PHPMailer.php';
-require 'include/vendor/SMTP.php';
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
 
 // BAKERY INFO 
 $bakery = $conn->query("SELECT * FROM bakery_info LIMIT 1")->fetch_assoc();
@@ -139,44 +133,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_check_email']))
     }
 
     // SEND EMAIL
-    $mail = new PHPMailer(true);
+    $scheme    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $loginLink = $scheme . '://' . $_SERVER['HTTP_HOST']
+               . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\') . '/admin_login.php';
 
-    try {
-        $mail->isSMTP();
-        $mail->Host = 'smtp.gmail.com'; 
-        $mail->SMTPAuth = true;
-        $mail->Username = 'wongyungsin04@gmail.com';
-        $mail->Password = 'jfim afvt zusc vqwg';
-        $mail->SMTPSecure = 'tls';
-        $mail->Port = 587;
+    // 必须转义，密码里可能有 < > &
+    $safeName  = htmlspecialchars($name);
+    $safeEmail = htmlspecialchars($email);
+    $safePwd   = htmlspecialchars($password);
 
-        $mail->setFrom('wongyungsin04@gmail.com', 'Admin System - ' . $bakery['SHOP_NAME']);
-        $mail->addAddress($email, $name);
+    $body = "
+    <div style='font-family:Arial,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:auto;'>
+        <h3>Welcome {$safeName}</h3>
+        <p>Your admin account for Maker Kluang has been created.</p>
+        <p><b>Email:</b> {$safeEmail}</p>
+        <p><b>Temporary Password:</b> {$safePwd}</p>
+        <p>Please login and change your password immediately.</p>
+        <p style='text-align:center;margin:25px 0;'>
+            <a href='{$loginLink}' style='background-color:#80b8d2;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:bold;'>Admin Login</a>
+        </p>
+        <p style='font-size:12px;color:#999;'>Or open this link: {$loginLink}</p>
+    </div>";
 
-        $mail->isHTML(true);
-        $mail->Subject = "Your Admin Account Created";
+    $alt = "Hi {$name}, your admin account has been created.\n"
+         . "Email: {$email}\nTemporary Password: {$password}\n"
+         . "Login: {$loginLink}\nPlease change your password immediately.";
 
-        $mail->Body = "
-            <h3>Welcome $name</h3>
-            <p>Your admin account has been created.</p>
-            <p><b>Email:</b> $email</p>
-            <p><b>Temporary Password:</b> $password</p>
-            <p>Please login and change your password immediately.</p>
-            <p>
-                👉 <a href='http://localhost/TWPLAB/AdminModuleFYP/admin_login.php'>
-                    Admin Login
-                </a>
-            </p>            
-        ";
+    $mailOk = sendMail($email, "Your Admin Account Created - Maker Kluang", $body, $name, $alt);
 
-        $mail->send();
-
-    } catch (Exception $e) {
-        error_log("Email send failed: " . $e->getMessage());
-    }
-    // END EMAIL
-
-    echo "ok";
+    // 账号已建立，邮件失败要让前端知道
+    echo $mailOk ? "ok" : "ok_nomail";
     exit;
 }
 ?>
@@ -570,15 +556,19 @@ document.addEventListener("DOMContentLoaded", function () {
         .then(res => res.text())
         .then(data => {
 
-            if (data.trim() === "ok") {
-                showToast("success", "Admin created");
+            const res = data.trim();
 
-                setTimeout(() => {
-                    window.location.href = "manage_admin.php";
-                }, 800);
+            if (res === "ok") {
+                showToast("success", "Admin created");
+                setTimeout(() => { window.location.href = "manage_admin.php"; }, 800);
+
+            } else if (res === "ok_nomail") {
+                showToast("error", "Admin created, but the email could not be sent. Please give the password to the admin manually.");
+                setTimeout(() => { window.location.href = "manage_admin.php"; }, 4000);
 
             } else {
-                showToast("error", "Failed");
+                // 显示后端的具体错误，而不是只写 Failed
+                showToast("error", res || "Failed");
             }
         });
     });

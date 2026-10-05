@@ -4,6 +4,12 @@ session_start();
 
 header('Content-Type: text/plain');
 
+// 管理员才能删除
+if (!isset($_SESSION['admin_id'])) {
+    echo "error";
+    exit;
+}
+
 if (!isset($_GET['voucher_id'])) {
     echo "error";
     exit;
@@ -15,29 +21,12 @@ $voucherId = (int)$_GET['voucher_id'];
 $stmt = $conn->prepare("SELECT 1 FROM voucher WHERE VOUCHER_ID = ? AND IS_DELETED = 0");
 $stmt->bind_param("i", $voucherId);
 $stmt->execute();
-$result = $stmt->get_result();
-
-if ($result->num_rows == 0) {
+if ($stmt->get_result()->num_rows == 0) {
     echo "error";
     exit;
 }
 
-// 2. Check if any customer still holds an unused, unexpired copy
-$stmtInUse = $conn->prepare("
-    SELECT 1 FROM customer_voucher
-    WHERE VOUCHER_ID = ?
-      AND USED_COUNT = 0
-      AND EXPIRY_DATE >= CURDATE()
-    LIMIT 1
-");
-$stmtInUse->bind_param("i", $voucherId);
-$stmtInUse->execute();
-if ($stmtInUse->get_result()->num_rows > 0) {
-    echo "error_in_use";
-    exit;
-}
-
-// 3. Check if voucher already used in orders (kept for order-history integrity)
+// 2. Check if voucher already used in orders (kept for order-history integrity)
 $stmt2 = $conn->prepare("SELECT COUNT(*) AS total FROM orders WHERE VOUCHER_ID = ?");
 $stmt2->bind_param("i", $voucherId);
 $stmt2->execute();
@@ -48,17 +37,25 @@ if ($used['total'] > 0) {
     exit;
 }
 
-// 4. If no errors, soft-delete
-$stmt3 = $conn->prepare("
-    UPDATE voucher
-    SET IS_DELETED = 1, UPDATED_AT = CURRENT_TIMESTAMP()
-    WHERE VOUCHER_ID = ?
-");
-$stmt3->bind_param("i", $voucherId);
+// 3. Clean up unused customer copies + soft-delete (all or nothing)
+$conn->begin_transaction();
+try {
+    $del = $conn->prepare("DELETE FROM customer_voucher WHERE VOUCHER_ID = ? AND USED_COUNT = 0");
+    $del->bind_param("i", $voucherId);
+    if (!$del->execute()) throw new Exception("cleanup failed");
 
-if ($stmt3->execute()) {
+    $upd = $conn->prepare("
+        UPDATE voucher
+        SET IS_DELETED = 1, UPDATED_AT = CURRENT_TIMESTAMP()
+        WHERE VOUCHER_ID = ?
+    ");
+    $upd->bind_param("i", $voucherId);
+    if (!$upd->execute()) throw new Exception("delete failed");
+
+    $conn->commit();
     echo "ok";
-} else {
+} catch (Exception $e) {
+    $conn->rollback();
     echo "error";
 }
 exit;

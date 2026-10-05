@@ -157,7 +157,7 @@ body {
     margin-bottom: 20px;
 }
 
-.form-back-link:hover {
+.form-back-link i:hover, .form-back-link:hover {
     background: var(--dark-pill);
     color: #ffffff !important;
     border-color: var(--dark-pill);
@@ -213,6 +213,11 @@ body {
     font-weight: 700;
 }
 
+.badge-arrow i {
+    color: var(--accent-lime);
+}
+
+
 .dash-title {
     font-family: var(--font-heading);
     font-size: 24px;
@@ -246,7 +251,11 @@ body {
     font-family: var(--font-heading);
 }
 
-.edit-btn-pill:hover {
+.edit-btn-pill i{
+    color: #ffffff !important;
+}
+
+.edit-btn-pill i:hover, .edit-btn-pill:hover {
     background: #000000;
     color: var(--accent-lime) !important;
     transform: translateY(-1px);

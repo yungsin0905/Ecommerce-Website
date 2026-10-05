@@ -209,6 +209,24 @@ try {
         if (!$assign->execute()) throw new Exception("Assign failed");
     }
 
+    // Public voucher：自动发给所有 Active 客户，到期日 = voucher 的到期日
+    if ($type === "Public") {
+        $publicExpiry = date('Y-m-d', strtotime($expiry));
+
+        $assignPub = $conn->prepare("
+            INSERT INTO customer_voucher (CUSTOMER_ID, VOUCHER_ID, USED_COUNT, EXPIRY_DATE)
+            SELECT c.CUSTOMER_ID, ?, 0, ?
+            FROM customer c
+            WHERE c.STATUS = 'Active'
+              AND NOT EXISTS (
+                  SELECT 1 FROM customer_voucher cv
+                  WHERE cv.CUSTOMER_ID = c.CUSTOMER_ID AND cv.VOUCHER_ID = ?
+              )
+        ");
+        $assignPub->bind_param("isi", $newVoucherId, $publicExpiry, $newVoucherId);
+        if (!$assignPub->execute()) throw new Exception("Assign public failed");
+    }
+
     $conn->commit();
     echo "ok";
 } catch (Exception $e) {
@@ -285,7 +303,7 @@ body {
     margin-bottom: 20px;
 }
 
-.form-back-link:hover {
+.form-back-link i:hover, .form-back-link:hover {
     background: var(--dark-pill);
     color: #ffffff !important;
     border-color: var(--dark-pill);
@@ -339,6 +357,10 @@ body {
     align-items: center;
     justify-content: center;
     font-weight: 700;
+}
+
+.badge-arrow i {
+    color: var(--accent-lime);
 }
 
 .dash-title {
@@ -554,6 +576,11 @@ body {
     box-shadow: 0 4px 14px rgba(24, 24, 27, 0.15);
     font-family: var(--font-heading);
 }
+
+.form-btn i{
+     color: #ffffff;
+}
+
 
 .form-btn:hover {
     background: #000000;

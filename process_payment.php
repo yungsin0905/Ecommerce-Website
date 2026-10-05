@@ -189,12 +189,23 @@ if ($voucher_id > 0) {
         }
 
         $expiry_ok = true;
+        
         if (!empty($v_row['EXPIRY_DATE']) &&
             $v_row['EXPIRY_DATE'] !== '0000-00-00 00:00:00' &&
             $v_row['EXPIRY_DATE'] !== '0000-00-00') {
             $expiry_ok = ($today <= new DateTime($v_row['EXPIRY_DATE']));
         }
 
+        if ($expiry_ok) {
+            $cvRes = mysqli_query($conn, "SELECT EXPIRY_DATE FROM customer_voucher
+                                        WHERE CUSTOMER_ID = $customer_id AND VOUCHER_ID = $voucher_id LIMIT 1");
+            $cvRow = $cvRes ? mysqli_fetch_assoc($cvRes) : null;
+            if ($cvRow && !empty($cvRow['EXPIRY_DATE'])) {
+                if ($today > new DateTime(substr($cvRow['EXPIRY_DATE'], 0, 10) . ' 23:59:59')) $expiry_ok = false;
+            }
+        }
+
+        
         $global_ok = ($v_row['MAX_USAGE'] == -1 || $v_row['USED_COUNT'] < $v_row['MAX_USAGE']);
         $user_ok   = ($v_row['PER_USER_LIMIT'] == -1 || intval($v_row['CUSTOMER_USED_COUNT']) < $v_row['PER_USER_LIMIT']);
         $spend_ok  = ($sub_total >= floatval($v_row['MIN_SPEND']));

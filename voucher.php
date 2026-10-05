@@ -90,10 +90,10 @@ if (!empty($v_expiry) && $v_expiry !== '0000-00-00 00:00:00' && $v_expiry !== '0
     }
 }
 
-// check customer_voucher's own expiry
+// check customer_voucher's own expiry (valid through the end of that day)
 $cv_expiry = $row['CUSTOMER_EXPIRY_DATE'];
 if (!$is_expired && !empty($cv_expiry) && $cv_expiry !== '0000-00-00 00:00:00' && $cv_expiry !== '0000-00-00') {
-    if (new DateTime($cv_expiry) < $today) {
+    if (new DateTime(substr($cv_expiry, 0, 10) . ' 23:59:59') < $today) {
         $is_expired = true;
     }
 }

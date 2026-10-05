@@ -265,7 +265,7 @@ body {
     margin-bottom: 20px;
 }
 
-.form-back-link:hover {
+.form-back-link i:hover, .form-back-link:hover {
     background: var(--dark-pill);
     color: #ffffff !important;
     border-color: var(--dark-pill);
@@ -319,6 +319,10 @@ body {
     align-items: center;
     justify-content: center;
     font-weight: 700;
+}
+
+.badge-arrow i {
+    color: var(--accent-lime);
 }
 
 .dash-title {

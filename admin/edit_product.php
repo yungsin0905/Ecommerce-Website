@@ -694,7 +694,7 @@ body {
     color: var(--text-dark);
     text-decoration: none;
     box-shadow: var(--shadow-soft);
-    transition: all 0.2s ease;
+    transition: 0.5s;
     margin-bottom: 16px;
 }
 
@@ -704,6 +704,10 @@ body {
     border-color: var(--dark-pill);
     transform: translateX(-2px);
     text-decoration: none;
+}
+
+.form-back-link i:hover{
+    color: #ffffff !important;
 }
 
 /* Page Header */
@@ -1580,6 +1584,10 @@ select.form-input {
     align-self: flex-start;
     margin-top: 6px;
 }
+
+.bl-add i {
+    color:white;
+}
 .bl-add:hover {
     background: #000000;
     color: var(--accent-lime);
@@ -1653,6 +1661,10 @@ select.form-input {
     gap: 8px;
     transition: all 0.25s ease;
     width: auto;
+}
+
+.form-btn i {
+    color:white;
 }
 
 .form-btn:hover {
@@ -1773,7 +1785,7 @@ select.form-input {
                     </h3>
                     <div id="optionGroups"></div>
                     <button type="button" class="btn-pill-dark" onclick="addOptionGroup()">
-                        <i class="bi bi-plus-lg"></i>Add Option Group
+                       + Add Option Group
                     </button>
                 </div>
 
@@ -1823,7 +1835,7 @@ select.form-input {
                     </h3>
                     <div id="featureBuilder"></div>
                     <button type="button" class="bl-add" onclick="addFeatureGroup()">
-                        <i class="bi bi-plus-lg me-1"></i>Add Feature Category
+                        + Add Feature Category
                     </button>
 
                     <input type="hidden" name="packing_json" id="packingJson">
@@ -1838,7 +1850,7 @@ select.form-input {
                     </h3>
                     <div id="packingBuilder"></div>
                     <button type="button" class="bl-add" onclick="addPackingGroup()">
-                        <i class="bi bi-plus-lg me-1"></i>Add Package Group
+                    + Add Package Group
                     </button>
                 </div>
 

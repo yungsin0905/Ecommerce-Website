@@ -1,7 +1,12 @@
-﻿<?php include 'include/config.php';
+﻿<?php
 session_start();
+include 'include/config.php';
 
-if(isset($_SESSION['CUSTOMER_ID'])){
+// 防止 token 通过 Referer 泄露，也不要缓存这个页面
+header('Referrer-Policy: no-referrer');
+header('Cache-Control: no-store');
+
+if (isset($_SESSION['CUSTOMER_ID'])) {
     header("Location: index.php");
     exit();
 }
@@ -9,78 +14,93 @@ if(isset($_SESSION['CUSTOMER_ID'])){
 $registrationMessage = "";
 $messageType = "";
 
-$token = isset($_GET['token']) ? mysqli_real_escape_string($conn, $_GET['token']) : '';
+$token = $_GET['token'] ?? '';
 
-if (empty($token)) {
+// token 是 64 位十六进制，格式不对直接跳走
+if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
     header("Location: login.php");
     exit();
 }
 
-$checkTokenSql = "SELECT CUSTOMER_ID FROM pass_reset WHERE TOKEN = '$token' AND EXPIRES_AT > NOW() LIMIT 1";
-$tokenResult   = mysqli_query($conn, $checkTokenSql);
-$isTokenValid  = ($tokenResult && mysqli_num_rows($tokenResult) > 0);
+// 一次查出 token + 客户状态
+$stmt = $conn->prepare("
+    SELECT pr.CUSTOMER_ID, c.STATUS
+    FROM pass_reset pr
+    INNER JOIN customer c ON c.CUSTOMER_ID = pr.CUSTOMER_ID
+    WHERE pr.TOKEN = ? AND pr.EXPIRES_AT > NOW()
+    LIMIT 1
+");
+$stmt->bind_param("s", $token);
+$stmt->execute();
+$tokenData = $stmt->get_result()->fetch_assoc();
+$stmt->close();
 
-if (!$isTokenValid) {
+$isTokenValid = false;
+$customer_id  = 0;
+
+if (!$tokenData) {
     $registrationMessage = "Invalid or expired token. Please request a new password reset link.";
     $messageType = "error";
+} elseif ($tokenData['STATUS'] === 'Suspended') {
+    $registrationMessage = "Your account has been suspended. Please contact us for assistance.";
+    $messageType = "error";
 } else {
-    $tokenData   = mysqli_fetch_assoc($tokenResult);
-    $customer_id = $tokenData['CUSTOMER_ID'];
-
-    //custsomer status checked
-    $statusResult = mysqli_query($conn, "SELECT STATUS FROM customer WHERE CUSTOMER_ID = '$customer_id'");
-    $statusData   = mysqli_fetch_assoc($statusResult);
-
-    if ($statusData['STATUS'] === 'Suspended') {
-        $isTokenValid        = false;
-        $registrationMessage = "Your account has been suspended. Please contact us for assistance.";
-        $messageType         = "error";
-    }
+    $isTokenValid = true;
+    $customer_id  = (int)$tokenData['CUSTOMER_ID'];
 }
 
-//password format checking
+// password checking
 if ($_SERVER["REQUEST_METHOD"] == "POST" && $isTokenValid) {
-    $password         = $_POST['password'];
-    $confirm_password = $_POST['confirm_password'];
+    $password         = $_POST['password'] ?? '';
+    $confirm_password = $_POST['confirm_password'] ?? '';
 
-    if (empty(trim($password)) || empty(trim($confirm_password))){
-      $registrationMessage = "All fields are required!";
-    }else if ($password !== $confirm_password) {
+    if (trim($password) === '' || trim($confirm_password) === '') {
+        $registrationMessage = "All fields are required!";
+    } elseif ($password !== $confirm_password) {
         $registrationMessage = "Passwords do not match.";
     } elseif (strlen($password) < 8) {
         $registrationMessage = "Password must be at least 8 characters.";
+    } elseif (strlen($password) > 15) {
+        $registrationMessage = "Password cannot exceed 15 characters.";
     } elseif (!preg_match('/[A-Z]/', $password)) {
         $registrationMessage = "Password must include at least one uppercase letter.";
     } elseif (!preg_match('/[a-z]/', $password)) {
         $registrationMessage = "Password must include at least one lowercase letter.";
     } elseif (!preg_match('/[0-9]/', $password)) {
         $registrationMessage = "Password must include at least one number.";
-    } elseif (!preg_match('/[\W_]/', $password)) {
+    } elseif (!preg_match('/[^A-Za-z0-9]/', $password)) {
         $registrationMessage = "Password must include at least one symbol.";
-    }else if (str_contains($password, ' ')) {
+    } elseif (preg_match('/\s/', $password)) {
         $registrationMessage = "Password cannot contain spaces!";
-    }else if (str_contains($confirm_password, ' ')) {
-        $registrationMessage = "Confirm Password cannot contain spaces!";
     } else {
-      //checking old password
-        $oldPassResult = mysqli_query($conn, "SELECT PASSWORD FROM customer WHERE CUSTOMER_ID = '$customer_id'");
-        $oldPassData   = mysqli_fetch_assoc($oldPassResult);
+        // 检查旧密码
+        $s = $conn->prepare("SELECT PASSWORD FROM customer WHERE CUSTOMER_ID = ?");
+        $s->bind_param("i", $customer_id);
+        $s->execute();
+        $oldPassData = $s->get_result()->fetch_assoc();
+        $s->close();
 
-        if (password_verify($password, $oldPassData['PASSWORD'])) {
+        if ($oldPassData && password_verify($password, $oldPassData['PASSWORD'])) {
             $registrationMessage = "New password cannot be the same as your old password.";
         } else {
-          //update new password
-            $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-            $updateSql = "UPDATE customer SET PASSWORD = '$hashed_password' WHERE CUSTOMER_ID = '$customer_id'";
+            $hashed = password_hash($password, PASSWORD_DEFAULT);
 
-            if (mysqli_query($conn, $updateSql)) {
-                mysqli_query($conn, "DELETE FROM pass_reset WHERE CUSTOMER_ID = '$customer_id'");
+            $u = $conn->prepare("UPDATE customer SET PASSWORD = ? WHERE CUSTOMER_ID = ?");
+            $u->bind_param("si", $hashed, $customer_id);
+
+            if ($u->execute()) {
+                $d = $conn->prepare("DELETE FROM pass_reset WHERE CUSTOMER_ID = ?");
+                $d->bind_param("i", $customer_id);
+                $d->execute();
+                $d->close();
+
                 $registrationMessage = "Password has been reset successfully! Redirecting to login...";
-                $messageType         = "success";
+                $messageType = "success";
                 header("refresh:3;url=login.php");
             } else {
                 $registrationMessage = "Something went wrong. Please try again later.";
             }
+            $u->close();
         }
     }
 }
@@ -257,15 +277,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $isTokenValid) {
         padding: 2px 0;
       }
 
-      .password-rules li::before {
-        content: 'âœ—  ';
-        color: #e57373;
-      }
+    .password-rules li::before { content: '\2717\00a0\00a0'; color: #e57373; }
+    .password-rules li.passed::before { content: '\2713\00a0\00a0'; color: #66bb6a; }
 
-      .password-rules li.passed::before {
-        content: 'âœ“  ';
-        color: #66bb6a;
-      }
 
       .password-rules li.passed {
         color: #66bb6a;
@@ -295,10 +309,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $isTokenValid) {
         margin-top: 25px;
         margin-bottom: 25px;
         transition: background-color 0.5s;
-      }
-
-      .btn-reset:hover {
-      background-color: #f8dbdf; 
       }
 
       .register-link{
@@ -342,7 +352,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && $isTokenValid) {
 
         <main class="signup-container">
           <h2>Reset Password</h2>
-          <p class="login-prompt">Enter your email and new password to reset.</p>
+          <p class="login-prompt">Enter your new password to reset.</p>
 
           <!-- Message display -->
               <?php if (!empty($registrationMessage)): ?>

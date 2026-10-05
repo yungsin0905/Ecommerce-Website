@@ -352,6 +352,10 @@ body {
     font-weight: 700;
 }
 
+.badge-arrow i {
+  color: var(--accent-lime);
+}
+
 .dash-title {
     font-family: var(--font-heading);
     font-size: 24px;

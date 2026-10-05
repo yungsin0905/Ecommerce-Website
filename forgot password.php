@@ -1,154 +1,102 @@
-﻿<?php include 'include/config.php';
+﻿<?php
 session_start();
+include 'include/config.php';
 
-if(isset($_SESSION['CUSTOMER_ID'])){
+if (isset($_SESSION['CUSTOMER_ID'])) {
     header("Location: index.php");
     exit();
 }
 
-//error report for debug
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
-
-$bakeryResult = mysqli_query($conn, "SELECT * FROM bakery_info LIMIT 1");
-$bakery = mysqli_fetch_assoc($bakeryResult);
-
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
-
-require_once 'include/vendor/Exception.php';
-require_once 'include/vendor/PHPMailer.php';
-require_once 'include/vendor/SMTP.php';
-
-
 $registrationMessage = "";
 $messageType = "error";
+$email = "";
 
-if($_SERVER["REQUEST_METHOD"] == "POST")
-{
-    $email = mysqli_real_escape_string($conn, $_POST['email']);
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    $email = trim($_POST['email'] ?? '');
 
-    if (empty(trim($email))){
-      $registrationMessage = "All fields are required!";
-    //verify the email format
-    }else if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    if ($email === '') {
+        $registrationMessage = "All fields are required!";
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $registrationMessage = "Invalid email format!";
-        $messageType = "error";
-    }else {
-    
-    //verify whether user is existing
-    $checkUser = "SELECT CUSTOMER_ID, CUSTOMER_NAME , STATUS FROM customer WHERE EMAIL = '$email' LIMIT 1";
-    $result = mysqli_query($conn,$checkUser);
+    } else {
+        // prepared statement，避免 SQL injection
+        $stmt = $conn->prepare("SELECT CUSTOMER_ID, CUSTOMER_NAME, STATUS FROM customer WHERE EMAIL = ? LIMIT 1");
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        $user = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
 
-    if(mysqli_num_rows($result)>0){
-
-        $user = mysqli_fetch_assoc($result);
-        
-        // Check if account is suspended
-          if($user['STATUS'] === 'Suspended') {
+        if (!$user) {
+        // 不暴露邮箱是否存在
+            $registrationMessage = "If this email is registered, a reset link has been sent.";
+            $messageType = "success";
+        }elseif ($user['STATUS'] === 'Suspended') {
             $registrationMessage = "Your account has been suspended. Please contact us for assistance.";
-            $messageType = "error";
         } else {
-            $customer_id = $user['CUSTOMER_ID'];
-            $full_name = $user['CUSTOMER_NAME'];
+            $customer_id = (int)$user['CUSTOMER_ID'];
+            $full_name   = $user['CUSTOMER_NAME'];
 
-        //generate unique token
-        $token = bin2hex(random_bytes(32));
+            $chk = $conn->prepare("SELECT CREATED_AT FROM pass_reset WHERE CUSTOMER_ID = ? ORDER BY CREATED_AT DESC LIMIT 1");
+            $chk->bind_param("i", $customer_id);
+            $chk->execute();
+            $last = $chk->get_result()->fetch_assoc();
+            $chk->close();
 
-        //setup date (add 10m in current time)
-        $expires_at = date("Y-m-d H:i:s", strtotime('+10 minutes') );
-        $created_at = date("Y-m-d H:i:s");
+            if ($last && (time() - strtotime($last['CREATED_AT'])) < 30) {
+                $registrationMessage = "Please wait 30 seconds before requesting another link.";
+            } else {
 
-        mysqli_query($conn, "DELETE FROM pass_reset WHERE CUSTOMER_ID = '$customer_id'");
+            $token      = bin2hex(random_bytes(32));
+            $expires_at = date("Y-m-d H:i:s", strtotime('+10 minutes'));
+            $created_at = date("Y-m-d H:i:s");
 
-        $insertSql = "INSERT INTO pass_reset (CUSTOMER_ID, RESET_EMAIL, TOKEN, EXPIRES_AT, CREATED_AT)
-        VALUES ('$customer_id','$email','$token','$expires_at','$created_at')";
+            $del = $conn->prepare("DELETE FROM pass_reset WHERE CUSTOMER_ID = ?");
+            $del->bind_param("i", $customer_id);
+            $del->execute();
+            $del->close();
 
-        if(mysqli_query($conn, $insertSql)){
-            $resetLink = "http://localhost/TWPLAB/password_reset.php?token=" . $token;
+            $ins = $conn->prepare("INSERT INTO pass_reset (CUSTOMER_ID, RESET_EMAIL, TOKEN, EXPIRES_AT, CREATED_AT) VALUES (?,?,?,?,?)");
+            $ins->bind_param("issss", $customer_id, $email, $token, $expires_at, $created_at);
 
-            //email sent
-            $mail = new PHPMailer(true);
+            if ($ins->execute()) {
+                // 自动适配本地 / 线上域名，不要写死 localhost
+                $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                $base   = $scheme . '://' . $_SERVER['HTTP_HOST'] . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\');
+                $resetLink = $base . '/password_reset.php?token=' . $token;
 
-            try {
-                // 1. server configuration
-                $mail->isSMTP();                                            
-                $mail->Host       = 'smtp.gmail.com';                     
-                $mail->SMTPAuth   = true;                                   
-                $mail->Username   = 'wongyungsin04@gmail.com'; // sender's email
-                $mail->Password   = 'jfim afvt zusc vqwg'; // google application password
-                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;         
-                $mail->Port       = 587;                                    
+                $safeName = htmlspecialchars($full_name);
+                $body = "
+                <div style='font-family:Arial,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:auto;'>
+                    <h2 style='color:#80b8d2;'>Maker Kluang</h2>
+                    <p>Dear {$safeName},</p>
+                    <p>You requested to reset your password. Please click the button below:</p>
+                    <p style='text-align:center;margin:30px 0;'>
+                        <a href='{$resetLink}' style='background-color:#80b8d2;color:#fff;padding:12px 30px;border-radius:6px;text-decoration:none;font-weight:bold;'>Reset My Password</a>
+                    </p>
+                    <p>Or copy and paste this link into your browser:</p>
+                    <p style='word-break:break-all;color:#888;font-size:13px;'>{$resetLink}</p>
+                    <p style='color:#d93025;font-size:13px;'>This link will expire in <strong>10 minutes</strong>. Do not share it with anyone.</p>
+                    <hr style='border:none;border-top:1px solid #ddd;'>
+                    <p>If you did not request a password reset, please ignore this email.</p>
+                    <p>Best Regards,<br><strong>Maker Kluang Team</strong></p>
+                </div>";
 
-                // 2. setting sent and receive
-                $mail->setFrom('wongyungsin04@gmail.com', 'Cakeology (No-Reply)');
-                $mail->addAddress($email, $full_name); 
+                $alt = "Hi {$full_name}, please use this link to reset your password: {$resetLink}";
 
-                // 3. email content
-                $mail->isHTML(true);                                  
-                $mail->Subject = 'Password Reset Request - Cakeology';
-                $mail->Body    = "<div style='font-family:Arial,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:auto;'>
-                                    
-                                    <h2 style='color:#e91e63;'>Cakeology</h2>
-
-                                    <p>Dear " . htmlspecialchars($full_name) . ",</p>
-
-                                    <p>You requested to reset your password. Please click the button below to proceed:</p>
-
-                                    <p style='text-align:center;margin:30px 0;'>
-                                        <a href='$resetLink' 
-                                          style='background-color:#f0c2c8;color:#936752;padding:12px 30px;
-                                                  border-radius:20px;text-decoration:none;font-weight:bold;font-size:15px;'>
-                                            Reset My Password
-                                        </a>
-                                    </p>
-
-                                    <p>Or copy and paste this link into your browser:</p>
-                                    <p style='word-break:break-all;color:#888;font-size:13px;'>$resetLink</p>
-
-                                    <p style='color:#d93025;font-size:13px;'>âš ï¸ This link will expire in <strong>10 minutes</strong>. Do not share this link with anyone.</p>
-
-                                    <hr style='border:none;border-top:1px solid #ddd;margin:20px 0;'>
-
-                                    <p>If you did not request a password reset, please ignore this email.</p>
-
-                                    <p>
-                                        Best Regards,<br>
-                                        <strong>Cakeology Team</strong>
-                                    </p>
-
-                                    <hr style='border:none;border-top:1px solid #ddd;margin:20px 0;'>
-
-                                  <p style='font-size:12px;color:#999;'>
-                                      {$bakery['ADDRESS']}, {$bakery['POSTCODE']} {$bakery['CITY']}, {$bakery['STATE']}<br>
-                                      Phone: {$bakery['PHONE']}<br>
-                                      Email: {$bakery['EMAIL']}
-                                  </p>
-
-                                </div>";
-                $mail->AltBody = "Hi $full_name, Please use this link to reset your password: $resetLink";
-
-                $mail->send();
-                $registrationMessage = "Reset link has been sent to your email. Please check it.";
-                $messageType = "success";
-            } catch (Exception $e) {
-                // if email cannot be sent, display the error message
-                $registrationMessage = "Email could not be sent. Error: {$mail->ErrorInfo}";
-                $messageType = "error";
+                if (sendMail($email, 'Password Reset Request - Maker Kluang', $body, $full_name, $alt)) {
+                    $registrationMessage = "Reset link has been sent to your email. Please check it.";
+                    $messageType = "success";
+                } else {
+                    $registrationMessage = "Email could not be sent. Please try again later.";
+                }
+            } else {
+                $registrationMessage = "Something went wrong. Please try again.";
             }
-        
-
+            $ins->close();
         }
-
-      }
-
-    }else {
-        $registrationMessage = "No user found with this email.";
     }
+  }
 }
-
-}   
-
 ?>
 
 <!DOCTYPE html>
@@ -336,10 +284,6 @@ if($_SERVER["REQUEST_METHOD"] == "POST")
         transition: background-color 0.5s;
       }
 
-      .btn-reset:hover {
-      background-color: #f8dbdf; 
-      }
-
       .register-link{
         color:var(--font2-color);
         font:12px;
@@ -405,7 +349,7 @@ if($_SERVER["REQUEST_METHOD"] == "POST")
       .form-input { border-color: var(--search-border-color); border-radius: 6px; color: var(--font-color); }
       .form-input::placeholder { color: #7C96AA; }
       .btn-reset { background: var(--main-color); color: #fff; border-radius: 6px; }
-      .btn-reset:hover { background: ; }
+      .btn-reset:hover { background: #6aa6c2; }
       .back-link:hover { color: var(--main-color); text-decoration: none; }
       button, input, select, textarea { font-family: 'Inter', sans-serif; }
     </style>
@@ -448,9 +392,10 @@ if($_SERVER["REQUEST_METHOD"] == "POST")
           
                 <div class="form-group">
                   <label class="form-label">Email :</label>
-                  <input type="email" name="email" class="form-control form-input" placeholder="Enter your Email" 
-                  oninput="this.value = this.value.replace(/\s/g, '')" 
-                  maxlength = "50" required>
+                  <input type="email" name="email" class="form-control form-input" placeholder="Enter your Email"
+                    value="<?php echo htmlspecialchars($email); ?>"
+                    oninput="this.value = this.value.replace(/\s/g, '')"
+                    maxlength="50" required>
                 </div>
               <p>
                 <button type="submit" class="btn-reset">Sent Link</button>

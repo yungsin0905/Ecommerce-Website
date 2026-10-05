@@ -117,7 +117,7 @@ body {
     margin-bottom: 20px;
 }
 
-.form-back-link:hover {
+.form-back-link i :hover,.form-back-link:hover {
     background: var(--dark-pill);
     color: #ffffff !important;
     border-color: var(--dark-pill);
@@ -173,6 +173,10 @@ body {
     font-weight: 700;
 }
 
+.badge-arrow i {
+    color: var(--accent-lime);
+}
+
 .dash-title {
     font-family: var(--font-heading);
     font-size: 24px;
@@ -204,6 +208,10 @@ body {
     box-shadow: 0 4px 14px rgba(24, 24, 27, 0.15);
     transition: all 0.2s ease;
     font-family: var(--font-heading);
+}
+
+.edit-btn-pill i {
+    color: #ffffff;
 }
 
 .edit-btn-pill:hover {
@@ -437,7 +445,7 @@ body {
             <div class="detail-row">
                 <div class="detail-label">Expiry Date</div>
                 <div class="detail-value">
-                    <?= !empty($voucher['EXPIRY_DATE']) ? date("d M Y, H:i", strtotime($voucher['EXPIRY_DATE'])) : "Claim-based voucher: valid for 3 months from the time it is assigned to the customer." ?>
+                   <?= !empty($voucher['EXPIRY_DATE']) ? date("d M Y, H:i", strtotime($voucher['EXPIRY_DATE'])) : "Tier voucher: valid for 1 month from the later of the start date or the time it is assigned to the customer." ?>
                 </div>
             </div>
         </div>
@@ -467,10 +475,19 @@ body {
             </div>
 
             <div class="detail-row">
-                <div class="detail-label">Discount Rate</div>
-                <div class="detail-value">
-                    <span class="highlight-stat"><?= $voucher['DISCOUNT_RATE'] ?>% OFF</span>
-                </div>
+                <div class="detail-label">Discount</div>
+                    <div class="detail-value">
+                        <span class="highlight-stat">
+                            <?= $voucher['DISCOUNT_TYPE'] === 'FIXED'
+                                ? 'RM ' . intval($voucher['DISCOUNT_RATE']) . ' OFF'
+                                : intval($voucher['DISCOUNT_RATE']) . '% OFF' ?>
+                        </span>
+                 </div>
+            </div>
+
+            <div class="detail-row">
+                <div class="detail-label">Discount Type</div>
+                <div class="detail-value"><?= $voucher['DISCOUNT_TYPE'] === 'FIXED' ? 'Fixed Amount (RM)' : 'Percentage (%)' ?></div>
             </div>
 
             <div class="detail-row">
