@@ -1622,8 +1622,8 @@ select.form-input {
                         </div>
 
                         <div class="form-group">
-                            <label>Warranty (Months)<span class="asterisk">*</span></label>
-                            <input type="text" name="warranty" class="form-input" min="0" placeholder="12" required>
+                            <label>Warranty (Months)</label>
+                            <input type="text" name="warranty" class="form-input" min="0" placeholder="12">
                         </div>
                     </div>
                 </div>

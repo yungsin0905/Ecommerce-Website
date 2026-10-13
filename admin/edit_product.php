@@ -1787,8 +1787,8 @@ select.form-input {
                         </div>
 
                         <div class="form-group">
-                            <label>Warranty (Months)<span class="asterisk">*</span></label>
-                            <input type="number" name="warranty" class="form-input" min="0" required
+                            <label>Warranty (Months)</label>
+                            <input type="number" name="warranty" class="form-input" min="0"
                             value="<?= htmlspecialchars($product['WARRANTY'] ?? '') ?>">
                         </div>
                     </div>
