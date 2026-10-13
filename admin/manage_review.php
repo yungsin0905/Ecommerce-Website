@@ -881,6 +881,10 @@ body {
     border-color: var(--dark-pill);
 }
 
+.action-btn i:hover {
+    color: white;
+}
+
 .action-menu {
     display: none;
     position: fixed;
@@ -889,11 +893,12 @@ body {
     transform: none;
     background: #ffffff;
     border: 1px solid var(--border-card);
-    border-radius: 14px;
-    box-shadow: 0 12px 30px rgba(17, 24, 39, 0.12);
+    border-radius: 16px;
+    box-shadow: 0 16px 36px rgba(17, 24, 39, 0.14);
     padding: 6px;
     z-index: 1000;
-    min-width: 145px;
+    min-width: 165px;
+    animation: modalScaleIn 0.15s ease-out;
 }
 
 .action-menu.show {
@@ -904,10 +909,10 @@ body {
 .action-menu button {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 7px 12px;
+    gap: 10px;
+    padding: 9px 13px;
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     color: var(--text-dark);
     text-decoration: none;
     border: none;
@@ -915,16 +920,26 @@ body {
     width: 100%;
     box-sizing: border-box;
     text-align: left;
-    border-radius: 8px;
+    border-radius: 10px;
     cursor: pointer;
-    transition: background 0.15s;
-    font-family: var(--font-body);
+    transition: all 0.15s ease;
+    font-family: var(--font-heading);
 }
 
 .action-menu a:hover,
 .action-menu button:hover {
     background: var(--bg-page);
+    color: var(--text-dark);
 }
+
+.action-menu i {
+    font-size: 15px;
+}
+
+.action-menu .view-btn i { color: var(--text-muted); }
+.action-menu .reply-btn i { color: #2563eb; }
+.action-menu .update-btn i { color: #16a34a; }
+.action-menu .reply-list-btn i { color: #d97706; }
 
 /* Modals */
 .modal {
@@ -932,23 +947,26 @@ body {
     position: fixed;
     z-index: 9999;
     inset: 0;
-    background: rgba(17, 24, 39, 0.45);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    background: rgba(17, 24, 39, 0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
     justify-content: center;
     align-items: center;
+    padding: 20px;
+    box-sizing: border-box;
 }
 
 .modal-content {
     background: #ffffff;
-    width: 90%;
-    max-width: 480px;
-    padding: 28px;
-    border-radius: var(--radius-card);
-    box-shadow: 0 20px 40px rgba(17, 24, 39, 0.15);
+    width: 100%;
+    max-width: 490px;
+    padding: 28px 30px;
+    border-radius: 24px;
+    box-shadow: 0 25px 60px rgba(17, 24, 39, 0.2);
     border: 1px solid var(--border-card);
     box-sizing: border-box;
-    animation: modalScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: modalScaleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
 }
 
 @keyframes modalScaleIn {
@@ -958,120 +976,441 @@ body {
 
 .modal-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     margin-bottom: 20px;
+    gap: 16px;
+}
+
+.modal-header-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.modal-icon-badge {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: var(--radius-pill) !important;
+    background: var(--accent-lime) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: 0 4px 12px rgba(212, 249, 56, 0.4) !important;
+    flex-shrink: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.modal-icon-badge i {
+    font-size: 21px !important;
+    color: var(--text-dark) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
+    margin: 0 !important;
 }
 
 .modal-title {
     font-family: var(--font-heading);
-    font-size: 18px;
-    font-weight: 700;
+    font-size: 20px;
+    font-weight: 800;
     color: var(--text-dark);
     margin: 0;
+    line-height: 1.2;
+}
+
+.modal-subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 3px 0 0;
+    line-height: 1.4;
 }
 
 .modal-close-icon {
-    background: var(--bg-page);
-    border: none;
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-pill);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: var(--text-muted);
-    transition: all 0.2s;
+    background: var(--bg-page) !important;
+    border: 1px solid var(--border-card) !important;
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: var(--radius-pill) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    color: var(--text-muted) !important;
+    transition: all 0.2s !important;
+    font-size: 18px !important;
+    line-height: 1 !important;
+    flex-shrink: 0 !important;
+    padding: 0 !important;
 }
 
 .modal-close-icon:hover {
-    background: var(--dark-pill);
-    color: #ffffff;
+    background: var(--dark-pill) !important;
+    color: #ffffff !important;
+    border-color: var(--dark-pill) !important;
 }
 
-.modal-textarea {
-    width: 100%;
-    height: 100px;
-    padding: 12px;
-    border-radius: 12px;
-    border: 1px solid var(--border-card);
-    font-family: var(--font-body);
-    font-size: 13.5px;
+/* Modal Context Info Card */
+.modal-review-context {
     background: var(--bg-page);
-    color: var(--text-dark);
-    box-sizing: border-box;
-    resize: vertical;
-    transition: all 0.2s;
-}
-
-.modal-textarea:focus {
-    outline: none;
-    background: #ffffff;
-    border-color: var(--dark-pill);
-    box-shadow: 0 0 0 3px rgba(212, 249, 56, 0.4);
-}
-
-.modal-select {
-    width: 100%;
-    padding: 10px 14px;
-    border-radius: var(--radius-pill);
     border: 1px solid var(--border-card);
-    font-family: var(--font-body);
-    font-size: 13.5px;
-    background: var(--bg-page);
-    color: var(--text-dark);
-    box-sizing: border-box;
-    outline: none;
-    transition: all 0.2s;
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
 }
 
-.modal-select:focus {
-    background: #ffffff;
-    border-color: var(--dark-pill);
-}
-
-.modal-footer {
+.modal-review-context .context-meta {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 10px;
-    margin-top: 24px;
+    justify-content: space-between;
+    font-size: 12.5px;
 }
 
-.btn-modal-cancel {
+.modal-review-context .context-customer {
+    font-weight: 700;
+    color: var(--text-dark);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-heading);
+}
+
+.modal-review-context .context-product {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
+}
+
+.modal-review-context .context-comment {
+    font-size: 12.5px;
+    color: var(--text-dark);
+    font-style: italic;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-top: 2px;
+}
+
+/* Visual Option Cards for Status */
+#statusForm .status-options-grid,
+.status-options-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 14px !important;
+    margin: 0 0 22px 0 !important;
+    width: 100% !important;
+}
+
+#statusForm .status-card-opt,
+.status-card-opt {
+    border: 2px solid var(--border-card) !important;
+    background: var(--bg-page) !important;
+    border-radius: 18px !important;
+    padding: 16px 16px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    align-items: stretch !important;
+    text-align: left !important;
+    position: relative !important;
+    user-select: none !important;
+    margin: 0 !important;
+}
+
+#statusForm .status-card-opt:hover,
+.status-card-opt:hover {
+    border-color: #cbd5e1 !important;
+    background: #ffffff !important;
+    transform: translateY(-2px) !important;
+}
+
+#statusForm .status-card-opt.selected,
+.status-card-opt.selected {
+    border-color: var(--dark-pill) !important;
+    background: #ffffff !important;
+    box-shadow: 0 6px 20px rgba(24, 24, 27, 0.08) !important;
+}
+
+#statusForm .opt-header,
+.status-card-opt .opt-header {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    margin: 0 0 12px 0 !important;
+    padding: 0 !important;
+}
+
+#statusForm .opt-icon,
+.opt-icon {
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: var(--radius-pill) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex-shrink: 0 !important;
+}
+
+#statusForm .unhide-opt .opt-icon,
+.unhide-opt .opt-icon {
+    background: #dcfce7 !important;
+}
+#statusForm .unhide-opt .opt-icon i,
+.unhide-opt .opt-icon i {
+    color: #16a34a !important;
+    font-size: 18px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+}
+
+#statusForm .hide-opt .opt-icon,
+.hide-opt .opt-icon {
+    background: #fee2e2 !important;
+}
+#statusForm .hide-opt .opt-icon i,
+.hide-opt .opt-icon i {
+    color: #dc2626 !important;
+    font-size: 18px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+}
+
+/* Radio Check Circle Indicator */
+#statusForm .opt-check,
+.opt-check {
+    width: 22px !important;
+    height: 22px !important;
+    border-radius: 50% !important;
+    border: 2px solid #cbd5e1 !important;
+    background: #ffffff !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex-shrink: 0 !important;
+    transition: all 0.2s ease !important;
+}
+
+/* Checkmark hidden when unselected */
+#statusForm .status-card-opt:not(.selected) .opt-check i,
+.status-card-opt:not(.selected) .opt-check i {
+    display: none !important;
+}
+
+/* Checkmark and dark circle when selected */
+#statusForm .status-card-opt.selected .opt-check,
+.status-card-opt.selected .opt-check {
+    border-color: var(--dark-pill) !important;
+    background: var(--dark-pill) !important;
+}
+
+#statusForm .status-card-opt.selected .opt-check i,
+.status-card-opt.selected .opt-check i {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: #ffffff !important;
+    font-size: 13px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+}
+
+#statusForm .opt-title,
+.opt-title {
+    display: block !important;
+    text-align: left !important;
+    font-family: var(--font-heading) !important;
+    font-size: 14.5px !important;
+    font-weight: 700 !important;
+    color: var(--text-dark) !important;
+    margin: 0 0 4px 0 !important;
+    width: 100% !important;
+}
+
+#statusForm .opt-desc,
+.opt-desc {
+    display: block !important;
+    text-align: left !important;
+    font-size: 12px !important;
+    color: var(--text-muted) !important;
+    line-height: 1.4 !important;
+    margin: 0 !important;
+    width: 100% !important;
+}
+
+/* Quick Reply Template Chips */
+.quick-reply-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.quick-chip {
     background: var(--bg-page);
     border: 1px solid var(--border-card);
-    padding: 9px 18px;
     border-radius: var(--radius-pill);
-    font-size: 13px;
+    padding: 5px 12px;
+    font-size: 11.5px;
     font-weight: 600;
     color: var(--text-muted);
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.15s ease;
+    user-select: none;
 }
 
-.btn-modal-cancel:hover {
-    background: #e4e4e7;
-    color: var(--text-dark);
-}
-
-.btn-modal-save {
+.quick-chip:hover {
     background: var(--dark-pill);
     color: #ffffff;
-    border: none;
-    padding: 9px 22px;
-    border-radius: var(--radius-pill);
-    font-size: 13px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 4px 12px rgba(24, 24, 27, 0.15);
+    border-color: var(--dark-pill);
 }
 
+/* Textarea & Inputs */
+.modal-textarea {
+    width: 100% !important;
+    min-height: 115px !important;
+    padding: 13px 15px !important;
+    border-radius: 14px !important;
+    border: 1px solid var(--border-card) !important;
+    font-family: var(--font-body) !important;
+    font-size: 14px !important;
+    background: #ffffff !important;
+    color: var(--text-dark) !important;
+    box-sizing: border-box !important;
+    resize: vertical !important;
+    transition: all 0.2s !important;
+    line-height: 1.5 !important;
+}
+
+.modal-textarea:focus {
+    outline: none !important;
+    background: #ffffff !important;
+    border-color: var(--dark-pill) !important;
+    box-shadow: 0 0 0 3px rgba(212, 249, 56, 0.4) !important;
+}
+
+/* Modal Footer & Buttons (Overriding global_manage.css old blue styles) */
+#replyForm div.modal-footer,
+#statusForm div.modal-footer,
+#replyListModal div.modal-footer,
+.modal-footer {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 10px !important;
+    margin-top: 22px !important;
+    padding: 0 !important;
+}
+
+#replyForm button,
+#statusForm button,
+#replyListModal button,
+.btn-modal-cancel,
+.btn-modal-save {
+    height: auto !important;
+}
+
+#replyForm button.btn-modal-cancel,
+#statusForm button.btn-modal-cancel,
+#replyListModal button.btn-modal-cancel,
+.btn-modal-cancel {
+    background: var(--bg-page) !important;
+    border: 1px solid var(--border-card) !important;
+    padding: 10px 20px !important;
+    border-radius: var(--radius-pill) !important;
+    font-family: var(--font-heading) !important;
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    color: var(--text-dark) !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    box-shadow: none !important;
+    line-height: 1.3 !important;
+}
+
+#replyForm button.btn-modal-cancel:hover,
+#statusForm button.btn-modal-cancel:hover,
+#replyListModal button.btn-modal-cancel:hover,
+.btn-modal-cancel:hover {
+    background: #e4e4e7 !important;
+    border-color: #d1d5db !important;
+    color: var(--text-dark) !important;
+}
+
+#replyForm button.btn-modal-save,
+#statusForm button.btn-modal-save,
+#replyListModal button.btn-modal-save,
+.btn-modal-save {
+    background: var(--dark-pill) !important;
+    color: #ffffff !important;
+    border: none !important;
+    padding: 10px 24px !important;
+    border-radius: var(--radius-pill) !important;
+    font-family: var(--font-heading) !important;
+    font-size: 13.5px !important;
+    font-weight: 700 !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 4px 14px rgba(24, 24, 27, 0.18) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 7px !important;
+    line-height: 1.3 !important;
+}
+
+#replyForm button.btn-modal-save:hover,
+#statusForm button.btn-modal-save:hover,
+#replyListModal button.btn-modal-save:hover,
 .btn-modal-save:hover {
-    background: #000000;
-    color: var(--accent-lime);
+    background: #000000 !important;
+    color: var(--accent-lime) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 18px rgba(24, 24, 27, 0.24) !important;
+}
+
+#replyForm button.btn-modal-save i,
+#statusForm button.btn-modal-save i,
+#replyListModal button.btn-modal-save i,
+.btn-modal-save i {
+    color: #ffffff !important;
+    font-size: 16px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+}
+
+#replyForm button.btn-modal-save:hover i,
+#statusForm button.btn-modal-save:hover i,
+#replyListModal button.btn-modal-save:hover i,
+.btn-modal-save:hover i {
+    color: var(--accent-lime) !important;
 }
 
 /* Reply List Modal */
@@ -1620,22 +1959,53 @@ body {
             <div id="replyModal" class="modal">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h3 class="modal-title">Reply to Review</h3>
+                        <div class="modal-header-left">
+                            <div class="modal-icon-badge">
+                                <i class="bi bi-reply-fill"></i>
+                            </div>
+                            <div>
+                                <h3 class="modal-title">Reply to Review</h3>
+                                <p class="modal-subtitle">Post a public response from the bakery to this customer.</p>
+                            </div>
+                        </div>
                         <button type="button" class="modal-close-icon" onclick="closeReplyModal()">&times;</button>
+                    </div>
+
+                    <!-- Review Context Info Card -->
+                    <div class="modal-review-context" id="replyReviewContext" style="display:none;">
+                        <div class="context-meta">
+                            <span class="context-customer"><i class="bi bi-person-circle"></i> <strong id="replyCustomerText">Customer</strong></span>
+                            <span class="context-product" id="replyProductText">Product</span>
+                        </div>
+                        <div class="context-comment" id="replyCommentText"></div>
                     </div>
 
                     <form id="replyForm">
                         <input type="hidden" name="review_id" id="replyReviewId">
-                        <label style="font-size: 13px; font-weight: 600; color: var(--text-dark); display: block; margin-bottom: 6px;">
-                            Your Response:
-                        </label>
-                        <textarea name="reply" id="modalReply" maxlength="300" required placeholder="Write a professional reply to the customer..." class="modal-textarea"></textarea>
-                        <div style="margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
-                            <small style="color: var(--text-muted); font-size: 11.5px;">Maximum 300 characters</small>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <label style="font-family: var(--font-heading); font-size: 13px; font-weight: 700; color: var(--text-dark); margin: 0;">
+                                Your Response:
+                            </label>
+                            <small style="color: var(--text-muted); font-size: 11.5px;">
+                                <span id="replyCharCount">0</span> / 300 characters
+                            </small>
                         </div>
+
+                        <!-- Quick Template Chips -->
+                        <div class="quick-reply-chips">
+                            <span class="quick-chip" onclick="insertQuickReply('Thank you for your feedback and support! ✨')">✨ Thank you</span>
+                            <span class="quick-chip" onclick="insertQuickReply('We are glad our products can support your coding and STEM learning journey. Happy coding and making!')">💻 Happy Coding</span>
+                            <span class="quick-chip" onclick="insertQuickReply('Thank you for sharing your experience! If you need any assistance with product setup or usage, feel free to contact us.')">🛠️ Need Help?</span>
+                        </div>
+
+                        <textarea name="reply" id="modalReply" maxlength="300" required placeholder="Write a professional reply to the customer..." class="modal-textarea" oninput="updateReplyCharCount()"></textarea>
+
                         <div class="modal-footer">
                             <button type="button" class="btn-modal-cancel" onclick="closeReplyModal()">Cancel</button>
-                            <button type="submit" class="btn-modal-save">Send Reply</button>
+                            <button type="submit" class="btn-modal-save">
+                                <i class="bi bi-send-fill"></i> Send Reply
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -1645,24 +2015,65 @@ body {
             <div id="statusModal" class="modal">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h3 class="modal-title">Update Review Status</h3>
+                        <div class="modal-header-left">
+                            <div class="modal-icon-badge">
+                                <i class="bi bi-shield-check"></i>
+                            </div>
+                            <div>
+                                <h3 class="modal-title">Update Review Status</h3>
+                                <p class="modal-subtitle">Control whether this review is visible to customers in the store.</p>
+                            </div>
+                        </div>
                         <button type="button" class="modal-close-icon" onclick="closeModal()">&times;</button>
+                    </div>
+
+                    <!-- Review Context Info Card -->
+                    <div class="modal-review-context" id="statusReviewContext" style="display:none;">
+                        <div class="context-meta">
+                            <span class="context-customer"><i class="bi bi-person-circle"></i> <strong id="statusCustomerText">Customer</strong></span>
+                            <span class="context-product" id="statusProductText">Product</span>
+                        </div>
                     </div>
 
                     <form id="statusForm">
                         <input type="hidden" name="review_id" id="statusReviewId">
 
-                        <label style="font-size: 13px; font-weight: 600; color: var(--text-dark); display: block; margin-bottom: 8px;">
+                        <label style="font-family: var(--font-heading); font-size: 13px; font-weight: 700; color: var(--text-dark); display: block; margin-bottom: 10px;">
                             Select Visibility:
                         </label>
-                        <select name="status" id="modalStatus" class="modal-select" required>
-                            <option value="Hide">Hide (Hidden from public store)</option>
+
+                        <!-- Hidden select synchronized for FormData submission -->
+                        <select name="status" id="modalStatus" style="display: none;" required>
                             <option value="Unhide">Unhide (Visible to all)</option>
+                            <option value="Hide">Hide (Hidden from public store)</option>
                         </select>
+
+                        <!-- Interactive Visual Option Cards -->
+                        <div class="status-options-grid">
+                            <div class="status-card-opt unhide-opt" id="optUnhide" onclick="selectStatusOption('Unhide')">
+                                <div class="opt-header">
+                                    <div class="opt-icon"><i class="bi bi-eye-fill"></i></div>
+                                    <div class="opt-check"><i class="bi bi-check-lg"></i></div>
+                                </div>
+                                <div class="opt-title">Unhide (Visible)</div>
+                                <div class="opt-desc">Visible to all customers on public store & catalogue</div>
+                            </div>
+
+                            <div class="status-card-opt hide-opt" id="optHide" onclick="selectStatusOption('Hide')">
+                                <div class="opt-header">
+                                    <div class="opt-icon"><i class="bi bi-eye-slash-fill"></i></div>
+                                    <div class="opt-check"><i class="bi bi-check-lg"></i></div>
+                                </div>
+                                <div class="opt-title">Hide (Hidden)</div>
+                                <div class="opt-desc">Hidden from store, viewable only by admins</div>
+                            </div>
+                        </div>
 
                         <div class="modal-footer">
                             <button type="button" class="btn-modal-cancel" onclick="closeModal()">Cancel</button>
-                            <button type="submit" class="btn-modal-save">Save Changes</button>
+                            <button type="submit" class="btn-modal-save">
+                                <i class="bi bi-check2"></i> Save Changes
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -1671,16 +2082,24 @@ body {
             <!-- View Reply Pop Up -->
             <div id="replyListModal" class="modal">
                 <div class="modal-content">
-                   <div class="modal-header">
-                       <h3 class="modal-title">Review Reply History</h3>
-                       <button type="button" class="modal-close-icon" onclick="closeReplyListModal()">&times;</button>
-                   </div>
+                    <div class="modal-header">
+                        <div class="modal-header-left">
+                            <div class="modal-icon-badge" style="background:#fef08a;color:#854d0e;box-shadow:0 4px 12px rgba(234,179,8,0.25);">
+                                <i class="bi bi-chat-dots-fill"></i>
+                            </div>
+                            <div>
+                                <h3 class="modal-title">Review Reply History</h3>
+                                <p class="modal-subtitle">All responses posted to this review by store administrators.</p>
+                            </div>
+                        </div>
+                        <button type="button" class="modal-close-icon" onclick="closeReplyListModal()">&times;</button>
+                    </div>
 
-                   <div id="replyListContainer"></div>
+                    <div id="replyListContainer"></div>
 
-                   <div class="modal-footer">
-                       <button type="button" class="btn-modal-cancel" onclick="closeReplyListModal()">Close</button>
-                   </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn-modal-cancel" onclick="closeReplyListModal()">Close</button>
+                    </div>
                 </div>
             </div>
 
@@ -1985,6 +2404,46 @@ function showToast(type, message) {
     setTimeout(removeToast, duration);
 }
 
+// Quick Reply insert helper
+function insertQuickReply(text) {
+    const textarea = document.getElementById("modalReply");
+    if (!textarea) return;
+    if (textarea.value.trim() === "") {
+        textarea.value = text;
+    } else {
+        textarea.value = textarea.value.trim() + " " + text;
+    }
+    textarea.focus();
+    updateReplyCharCount();
+}
+
+function updateReplyCharCount() {
+    const textarea = document.getElementById("modalReply");
+    const counter = document.getElementById("replyCharCount");
+    if (textarea && counter) {
+        counter.textContent = textarea.value.length;
+    }
+}
+
+// Select Status Option in Status Modal
+function selectStatusOption(status) {
+    const statusSelect = document.getElementById("modalStatus");
+    if (statusSelect) {
+        statusSelect.value = status;
+    }
+    const optUnhide = document.getElementById("optUnhide");
+    const optHide = document.getElementById("optHide");
+    if (optUnhide && optHide) {
+        if (status === 'Unhide') {
+            optUnhide.classList.add("selected");
+            optHide.classList.remove("selected");
+        } else {
+            optHide.classList.add("selected");
+            optUnhide.classList.remove("selected");
+        }
+    }
+}
+
 // REPLY TO REVIEW POP UP - OPEN
 function openReplyModal(reviewId) {
     const modal = document.getElementById("replyModal");
@@ -1992,7 +2451,8 @@ function openReplyModal(reviewId) {
         modal.style.display = "flex";
         document.getElementById("replyReviewId").value = reviewId;
         document.getElementById("modalReply").value = "";
-        document.getElementById("modalReply").focus();
+        updateReplyCharCount();
+        setTimeout(() => document.getElementById("modalReply").focus(), 50);
     }
 }
 
@@ -2038,7 +2498,7 @@ function openStatusModal(reviewId, currentStatus) {
     const modal = document.getElementById("statusModal");
     modal.style.display = "flex";
     document.getElementById("statusReviewId").value = reviewId;
-    document.getElementById("modalStatus").value = currentStatus;
+    selectStatusOption(currentStatus || 'Unhide');
 }
 
 // UPDATE STATUS POP UP - CLOSE

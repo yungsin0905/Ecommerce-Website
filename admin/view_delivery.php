@@ -42,43 +42,17 @@ $order = $stmt->get_result()->fetch_assoc();
 if (!$order) {
     die("Order not found");
 }
+ 
 
-// Determine whether is custom or normal order
-$isCustom = ($order['ORDER_TYPE'] === 'Custom');
- 
-// GET CUSTOM ORDER INFO
-$custom = null;
- 
-if ($isCustom) {
- 
-    $customSql = "
-    SELECT 
-        c.*
-    FROM order_item oi
-    INNER JOIN custom c 
-        ON oi.CUSTOM_ID = c.CUSTOM_ID
-    WHERE oi.ORDER_ID = ?
-    AND c.IS_DELETED = 0
-    LIMIT 1
-    ";
- 
-    $stmt2 = $conn->prepare($customSql);
-    $stmt2->bind_param("i", $orderId);
-    $stmt2->execute();
- 
-    $custom = $stmt2->get_result()->fetch_assoc();
-}
  
 // GET ORDER ITEMS + ADDON (NORMAL) INFO
 $itemSql = "
 SELECT 
     oi.ORDER_ITEM_ID,
     oi.QUANTITY,
-    oi.CAKE_WRITING,
-    oi.CARD_TEXT,
  
     oi.PRODUCT_NAME_SNAPSHOT,
-    oi.VARIANT_SIZE_SNAPSHOT,
+    oi.VARIANT_LABEL_SNAPSHOT,
  
     oia.ADDON_NAME_SNAPSHOT,
     oia.QUANTITY AS ADDON_QTY
@@ -240,13 +214,6 @@ while ($row = $result->fetch_assoc()) {
             </div>
 
             <div class="row">
-                <span class="label">Order type</span>
-                <span class="badge order-<?= strtolower($order['ORDER_TYPE']) ?>">
-                    <?= htmlspecialchars($order['ORDER_TYPE']) ?>
-                </span>
-            </div>
-
-            <div class="row">
                 <span class="label">Order status</span>
                 <span class="value">
                     <span class="badge status-<?= strtolower($order['ORDER_STATUS']) ?>">
@@ -289,60 +256,11 @@ while ($row = $result->fetch_assoc()) {
             </span>
         </div>
  
-        <!-- Custom -->
-        <?php if ($isCustom && $custom): ?>
- 
-            <div class="row">
-                <span class="label">Recipient name</span>
-                <span class="value"><?= htmlspecialchars($custom['RECIPIENT_NAME']) ?></span>
-            </div>
-
-            <div class="row">
-                <span class="label">Recipient email</span>
-                <span class="value"><?= htmlspecialchars($custom['RECIPIENT_EMAIL']) ?></span>
-            </div>
-
-            <div class="row">
-                <span class="label">Recipient phone</span>
-                <span class="value"><?= htmlspecialchars($custom['RECIPIENT_PHONE']) ?></span>
-            </div>
-
-            <hr>
-            
             <div class="row">
                 <span class="label">Delivery address</span>
                 <span class="value"><strong><?= nl2br(htmlspecialchars($order['DELIVERY_ADDRESS_SNAPSHOT'])) ?></strong></span>
             </div>
 
-            <div class="row">
-                <span class="label">Expected delivery date</span>
-                <span class="value"><strong><?= date("d M Y", strtotime($order['DELIVERY_DATE'])) ?></strong></span>
-            </div>
-
-            <div class="row">
-                <span class="label">Expected delivery time</span>
-                <span class="value"><strong><?= htmlspecialchars($order['DELIVERY_SLOT_SNAPSHOT']) ?></strong></span>
-            </div>
- 
-        <!-- Normal -->
-        <?php else: ?>
- 
-            <div class="row">
-                <span class="label">Delivery address</span>
-                <span class="value"><strong><?= nl2br(htmlspecialchars($order['DELIVERY_ADDRESS_SNAPSHOT'])) ?></strong></span>
-            </div>
-
-            <div class="row">
-                <span class="label">Expected delivery date</span>
-                <span class="value"><strong><?= date("d M Y", strtotime($order['DELIVERY_DATE'])) ?></strong></span>
-            </div>
-
-            <div class="row">
-                <span class="label">Expected delivery time</span>
-                <span class="value"><strong><?= htmlspecialchars($order['DELIVERY_SLOT_SNAPSHOT']) ?></strong></span>
-            </div>
- 
-        <?php endif; ?>
  
     </div>
  
@@ -368,67 +286,9 @@ while ($row = $result->fetch_assoc()) {
             </span>
         </div>
     </div>
- 
-    <!-- CUSTOM CAKE DETAILS -->
-    <?php if ($isCustom && $custom): ?>
-    <div class="card">
-        <h3>Custom cake details</h3>
 
-        <div class="row">
-            <span class="label">Cake style</span>
-            <span class="value"><?= htmlspecialchars($custom['STYLE_NAME_SNAPSHOT']) ?></span>
-        </div>
-
-        <div class="row">
-            <span class="label">Cake size</span>
-            <span class="value">
-                <?= !empty($custom['SIZE']) ? htmlspecialchars($custom['SIZE']) : '<span class="na">N/A</span>' ?>
-            </span>
-        </div>
-
-        <div class="row">
-            <span class="label">Cake Quantity</span>
-            <span class="value">
-                <?= !empty($custom['QUANTITY']) ? $custom['QUANTITY'] : '<span class="na">N/A</span>' ?>
-            </span>
-        </div>
-
-        <div class="row">
-            <span class="label">Cater count</span>
-            <span class="value">
-                <?= !empty($custom['CATER_COUNT']) ? htmlspecialchars($custom['CATER_COUNT']) : '<span class="na">N/A</span>' ?>
-            </span>
-        </div>
-
-        <div class="row">
-            <span class="label">Ideal flavour</span>
-            <span class="value">
-                <?= !empty($custom['IDEAL_FLAVOUR']) ? htmlspecialchars($custom['IDEAL_FLAVOUR']) : '<span class="na">N/A</span>' ?>
-            </span>
-        </div>
-
-        <div class="row">
-            <span class="label">Custom description</span>
-            <span class="value">
-                <?= !empty($custom['CUSTOM_DES']) ? nl2br(htmlspecialchars($custom['CUSTOM_DES'])) : '<span class="na">N/A</span>' ?>
-            </span>
-        </div>
-
-        <div class="row">
-            <span class="label">Reference image</span>
-            <span class="value">
-                <?php if (!empty($custom['REF_IMAGE'])): ?>
-                    <img src="../<?= htmlspecialchars($custom['REF_IMAGE']) ?>" class="ref-image" alt="Reference image">
-                <?php else: ?>
-                    <span class="na">N/A</span>
-                <?php endif; ?>
-            </span>
-        </div>
-    </div>
-    <?php endif; ?>
  
     <!-- ORDER ITEMS -->
-    <?php if (!$isCustom): ?>
     <div class="card">
         <h3>Order items</h3>
  
@@ -443,7 +303,7 @@ while ($row = $result->fetch_assoc()) {
 
             <div class="row">
                 <span class="label">Variant</span>
-                <span class="value"><?= htmlspecialchars($item['VARIANT_SIZE_SNAPSHOT']) ?> inch</span>
+                <span class="value"><?= htmlspecialchars($item['VARIANT_LABEL_SNAPSHOT'] ?? 'N/A') ?></span>
             </div>
 
             <div class="row">
@@ -465,24 +325,9 @@ while ($row = $result->fetch_assoc()) {
                     <?php endif; ?>
                 </span>
             </div>
-
-            <div class="row">
-                <span class="label">Cake writing</span>
-                <span class="value">
-                    <?= !empty($item['CAKE_WRITING']) ? htmlspecialchars($item['CAKE_WRITING']) : '<span class="na">N/A</span>' ?>
-                </span>
-            </div>
-            
-            <div class="row">
-                <span class="label">Card text</span>
-                <span class="value">
-                    <?= !empty($item['CARD_TEXT']) ? htmlspecialchars($item['CARD_TEXT']) : '<span class="na">N/A</span>' ?>
-                </span>
-            </div>
         </div>
         <?php endforeach; ?>
     </div>
-    <?php endif; ?>
  
 </div>
 

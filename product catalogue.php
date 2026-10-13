@@ -480,6 +480,13 @@ if (!$product_result) {
                     </li>
 
                     <?php foreach ($categories_tree as $parent): ?>
+                        <?php
+                        // 如果已经进入某个母分类，只显示该母分类；否则（All products）全部显示
+                        if ($top_id > 0 && intval($parent['CATEGORY_ID']) !== $top_id) {
+                            continue;
+                        }
+                        ?>
+
                         <?php if (!empty($parent['SUBCATEGORIES'])): ?>
                             <?php foreach ($parent['SUBCATEGORIES'] as $sub): ?>
                                 <li class="subcat-link-item">

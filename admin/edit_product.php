@@ -194,7 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $status      = $_POST['status'] ?? '';
     $des         = $_POST['description'] ?? '';
     $warranty    = trim($_POST['warranty'] ?? '');
-    $categoryIds = array_map('intval', $_POST['category_ids'] ?? []);
+    $categoryIds = array_values(array_unique(array_map('intval', $_POST['category_ids'] ?? [])));
 
     $packingGroups   = json_decode($_POST['packing_json']  ?? '[]', true) ?: [];
     $featureGroups   = json_decode($_POST['features_json'] ?? '[]', true) ?: [];
@@ -211,24 +211,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($variantsIn))  $errors[] = "At least 1 variant required";
 
     if (empty($errors)) {
-        foreach ($catChildren as $parentId => $children) {
-            foreach ($children as $child) {
-                if (in_array((int)$child['CATEGORY_ID'], $categoryIds, true) && !in_array((int)$parentId, $categoryIds, true)) {
-                    $errors[] = "Please also select the parent category for: " . $child['CATEGORY_NAME'];
-                }
+        $allCatIds = array_map('intval', array_column($catRows, 'CATEGORY_ID'));
+        foreach ($categoryIds as $cid) {
+            if (!in_array($cid, $allCatIds, true)) {
+                $errors[] = "Invalid category selected";
+                break;
             }
-        }
-        foreach ($catParents as $parent) {
-            $pid = (int)$parent['CATEGORY_ID'];
-            if (!in_array($pid, $categoryIds, true) || empty($catChildren[$pid])) continue;
-            $has = false;
-            foreach ($catChildren[$pid] as $ch) {
-                if (in_array((int)$ch['CATEGORY_ID'], $categoryIds, true)) { $has = true; break; }
+            if (!empty($catChildren[$cid])) {   // 这是有子分类的母分类
+                $errors[] = "Please select a sub-category instead of a parent category";
+                break;
             }
-            if (!$has) $errors[] = "Please also select a sub-category under: " . $parent['CATEGORY_NAME'];
         }
     }
-
     $warrantyVal = ($warranty !== '' && ctype_digit($warranty)) ? intval($warranty) : null;
 
     if (empty($errors)) {
@@ -1875,20 +1869,23 @@ select.form-input {
                         ?>
                         <div class="category-parent-group">
                             <div class="category-parent-header" onclick="toggleCategoryGroup(this)">
-                                <i class="bi <?= $open ? 'bi-chevron-down' : 'bi-chevron-right' ?> category-toggle-icon"></i>
-                                <label onclick="event.stopPropagation()">
-                                    <input type="checkbox" class="cat-parent" name="category_ids[]"
-                                        value="<?= $pid ?>" data-group="<?= $pid ?>" onchange="onParentToggle(this)"
-                                        <?= in_array($pid, $selCats, true) ? 'checked' : '' ?>>
-                                    <?= htmlspecialchars($parent['CATEGORY_NAME']) ?>
-                                </label>
+                                <?php if ($kids): ?>
+                                    <i class="bi <?= $open ? 'bi-chevron-down' : 'bi-chevron-right' ?> category-toggle-icon"></i>
+                                    <strong style="font-size:13px"><?= htmlspecialchars($parent['CATEGORY_NAME']) ?></strong>
+                                <?php else: ?>
+                                    <label onclick="event.stopPropagation()">
+                                        <input type="checkbox" name="category_ids[]" value="<?= $pid ?>"
+                                            <?= in_array($pid, $selCats, true) ? 'checked' : '' ?>>
+                                        <?= htmlspecialchars($parent['CATEGORY_NAME']) ?>
+                                    </label>
+                                <?php endif; ?>
                             </div>
+
                             <?php if ($kids): ?>
                             <div class="category-children" style="display:<?= $open ? 'flex' : 'none' ?>">
                                 <?php foreach ($kids as $child): ?>
                                 <label>
-                                    <input type="checkbox" class="cat-child" name="category_ids[]"
-                                        value="<?= $child['CATEGORY_ID'] ?>" data-group="<?= $pid ?>" onchange="onChildToggle(this)"
+                                    <input type="checkbox" name="category_ids[]" value="<?= (int)$child['CATEGORY_ID'] ?>"
                                         <?= in_array((int)$child['CATEGORY_ID'], $selCats, true) ? 'checked' : '' ?>>
                                     <?= htmlspecialchars($child['CATEGORY_NAME']) ?>
                                 </label>
@@ -2292,21 +2289,6 @@ function renderFeatures() {
     icon.classList.toggle('bi-chevron-down', !isOpen);
 }
 
-function onChildToggle(childCheckbox) {
-        // 勾选子分类 -> 自动勾选对应的母分类
-        if (childCheckbox.checked) {
-            const groupId = childCheckbox.dataset.group;
-            const parent = document.querySelector(`.cat-parent[data-group="${groupId}"]`);
-            if (parent) parent.checked = true;
-        }
-    }
-function onParentToggle(parentCheckbox) {
-        // 取消勾选母分类 -> 一并取消所有子分类，避免"选了子分类但母分类没选"的矛盾状态
-        if (!parentCheckbox.checked) {
-            const groupId = parentCheckbox.dataset.group;
-            document.querySelectorAll(`.cat-child[data-group="${groupId}"]`).forEach(c => c.checked = false);
-        }
-    }
 
 function removeOptionGroup(gi) {
     optionGroups.splice(gi, 1);
@@ -2961,22 +2943,7 @@ coverInput.addEventListener("change", function () {
             categoryError.textContent = "Select at least 1 category";
             ok = false;
         } else {
-            // 检查：勾了母分类、且它有子分类的话，是否至少勾了一个子分类
-            let missingChild = false;
-            document.querySelectorAll('.cat-parent:checked').forEach(parentCb => {
-                const groupId = parentCb.dataset.group;
-                const children = document.querySelectorAll(`.cat-child[data-group="${groupId}"]`);
-                if (children.length === 0) return;                       // 这个母分类本来就没有子分类
-                const anyChildChecked = Array.from(children).some(c => c.checked);
-                if (!anyChildChecked) missingChild = true;
-            });
-
-            if (missingChild) {
-                categoryError.textContent = "Please also select a sub-category for each selected category";
-                ok = false;
-            } else {
-                categoryError.textContent = "";
-            }
+            categoryError.textContent = "";
         }
 
         

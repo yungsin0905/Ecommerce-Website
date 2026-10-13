@@ -8,7 +8,7 @@ if (!isset($_SESSION['admin_id'])) {
 }
 $admin_id = $_SESSION['admin_id'];
 
-// page title
+// Page Title
 $pageTitle = "System Settings";
 
 // VALIDATION HELPER
@@ -140,154 +140,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $activeTab = 'bakery';
     }
 
-    // ADD / EDIT DELIVERY COVERAGE
-    if (isset($_POST['save_coverage'])) {
-
-        // Postcode
-        if (empty(trim($_POST['postcode'] ?? '')))
-            addError('cov_postcode', 'Postcode is required.');
-        elseif (!preg_match('/^[0-9]{5}$/', trim($_POST['postcode'])))
-            addError('cov_postcode', 'Postcode must be exactly 5 digits.');
-
-        // City
-        if (empty(trim($_POST['city'] ?? '')))
-            addError('cov_city', 'City is required.');
-
-        // State
-        if (empty(trim($_POST['state'] ?? '')))
-            addError('cov_state', 'State is required.');
-
-        // Delivery fee
-        if (!isset($_POST['fee']) || $_POST['fee'] === '')
-            addError('cov_fee', 'Delivery fee is required.');
-        elseif (!is_numeric($_POST['fee']) || (float)$_POST['fee'] < 0)
-            addError('cov_fee', 'Fee must be a positive number.');
-
-        if (empty($errors)) {
-            $covId = !empty($_POST['coverage_id']) ? (int)$_POST['coverage_id'] : 0;
-            $dup = $conn->prepare("SELECT COVERAGE_ID FROM delivery_coverage WHERE POSTCODE = ? AND COVERAGE_ID != ?");
-            $dup->bind_param("si", $_POST['postcode'], $covId);
-            $dup->execute();
-            if ($dup->get_result()->num_rows > 0)
-                addError('cov_postcode', 'This postcode already exists.');
-        }
-
-        // if no errors, save
-        if (empty($errors)) {
-            if (!empty($_POST['coverage_id'])) {
-                $stmt = $conn->prepare("UPDATE delivery_coverage SET POSTCODE=?, CITY=?, STATE=?, DELIVERY_FEE=? WHERE COVERAGE_ID=?");
-                $stmt->bind_param("sssdi", $_POST['postcode'], $_POST['city'], $_POST['state'], $_POST['fee'], $_POST['coverage_id']);
-            } else {
-                $stmt = $conn->prepare("INSERT INTO delivery_coverage (POSTCODE, CITY, STATE, DELIVERY_FEE) VALUES (?, ?, ?, ?)");
-                $stmt->bind_param("sssd", $_POST['postcode'], $_POST['city'], $_POST['state'], $_POST['fee']);
-            }
-            $stmt->execute();
-            header("Location: settings.php?tab=coverage&success=1");
-            exit;
-        }
-        $activeTab = 'coverage';
-    }
-
-    // ADD / EDIT DELIVERY RULE 
-    if (isset($_POST['save_rule'])) {
-
-        $ruleMode = $_POST['rule_mode'] ?? 'date';
-
-        // date
-        if ($ruleMode === 'date' && empty($_POST['date']))
-            addError('rule_date', 'Please select a date.');
-        elseif ($ruleMode === 'date' && !empty($_POST['date'])) {
-            $d = DateTime::createFromFormat('Y-m-d', $_POST['date']);
-            if (!$d) {
-                addError('rule_date', 'Invalid date format.');
-            } elseif ($_POST['date'] < date('Y-m-d')) {
-                addError('rule_date', 'Date cannot be in the past.');
-            }
-        }
-
-        // day
-        if ($ruleMode === 'day' && empty($_POST['day_of_week']))
-            addError('rule_day', 'Please select a day of the week.');
-
-        if (empty($errors) && ($ruleMode ?? 'date') === 'date' && !empty($_POST['date'])) {
-            $ruleId = !empty($_POST['rule_id']) ? (int)$_POST['rule_id'] : 0;
-            $dup = $conn->prepare("SELECT RULE_ID FROM delivery_date_rules WHERE DATE = ? AND RULE_ID != ?");
-            $dup->bind_param("si", $_POST['date'], $ruleId);
-            $dup->execute();
-        if ($dup->get_result()->num_rows > 0)
-            addError('rule_date', 'This date already has a rule.');
-        }
-
-        if (empty($errors) && ($ruleMode ?? 'date') === 'day' && !empty($_POST['day_of_week'])) {
-            $ruleId = !empty($_POST['rule_id']) ? (int)$_POST['rule_id'] : 0;
-            $dup = $conn->prepare("SELECT RULE_ID FROM delivery_date_rules WHERE DAY_OF_WEEK = ? AND RULE_ID != ?");
-            $dup->bind_param("ii", $_POST['day_of_week'], $ruleId);
-            $dup->execute();
-        if ($dup->get_result()->num_rows > 0)
-            addError('rule_day', 'This day already has a rule.');
-        }
-
-        // if no errors, save
-        if (empty($errors)) {
-            $date      = null;
-            $dayOfWeek = null;
-            $reason    = trim($_POST['reason'] ?? '');
-
-            if ($ruleMode === 'date' && !empty($_POST['date'])) {
-                $date = $_POST['date'];
-            } elseif ($ruleMode === 'day' && !empty($_POST['day_of_week'])) {
-                $dayOfWeek = (int)$_POST['day_of_week'];
-            }
-
-            if (!empty($_POST['rule_id'])) {
-                $stmt = $conn->prepare("UPDATE delivery_date_rules SET DATE=?, DAY_OF_WEEK=?, REASON=? WHERE RULE_ID=?");
-                $stmt->bind_param("sisi", $date, $dayOfWeek, $reason, $_POST['rule_id']);
-            } else {
-                $stmt = $conn->prepare("INSERT INTO delivery_date_rules (DATE, DAY_OF_WEEK, REASON, STATUS) VALUES (?, ?, ?, 'Active')");
-                $stmt->bind_param("sis", $date, $dayOfWeek, $reason);
-            }
-            $stmt->execute();
-            header("Location: settings.php?tab=rules&success=1");
-            exit;
-        }
-        $activeTab = 'rules';
-    }
-
-    // ADD / EDIT DELIVERY SLOT
-    if (isset($_POST['save_slot'])) {
-
-        // date 
-        if (empty($_POST['start']))
-            addError('slot_start', 'Start time is required.');
-        if (empty($_POST['end']))
-            addError('slot_end', 'End time is required.');
-        if (!empty($_POST['start']) && !empty($_POST['end']) && $_POST['end'] <= $_POST['start'])
-            addError('slot_end', 'End time must be after start time.');
-
-        if (empty($errors)) {
-            $slotId = !empty($_POST['slot_id']) ? (int)$_POST['slot_id'] : 0;
-            $dup = $conn->prepare("SELECT SLOT_ID FROM delivery_slots WHERE START_TIME = ? AND END_TIME = ? AND SLOT_ID != ?");
-            $dup->bind_param("ssi", $_POST['start'], $_POST['end'], $slotId);
-            $dup->execute();
-            if ($dup->get_result()->num_rows > 0)
-                addError('slot_end', 'This time slot already exists.');
-        }
-
-        // if no errors, save
-        if (empty($errors)) {
-            if (!empty($_POST['slot_id'])) {
-                $stmt = $conn->prepare("UPDATE delivery_slots SET START_TIME=?, END_TIME=? WHERE SLOT_ID=?");
-                $stmt->bind_param("ssi", $_POST['start'], $_POST['end'], $_POST['slot_id']);
-            } else {
-                $stmt = $conn->prepare("INSERT INTO delivery_slots (START_TIME, END_TIME, STATUS) VALUES (?, ?, 'Active')");
-                $stmt->bind_param("ss", $_POST['start'], $_POST['end']);
-            }
-            $stmt->execute();
-            header("Location: settings.php?tab=slots&success=1");
-            exit;
-        }
-        $activeTab = 'slots';
-    }
 
     // ADD / EDIT MEMBERSHIP TIER 
     if (isset($_POST['save_tier'])) {
@@ -320,65 +172,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $min    = (float)$_POST['min_spent'];
             $tierId = !empty($_POST['tier_id']) ? (int)$_POST['tier_id'] : 0;
 
-        if ($tierId) {
-            // Check if default tier - block min_spent change
-            $check = $conn->prepare("SELECT IS_DEFAULT, MIN_SPENT FROM membership_tier WHERE TIER_ID = ?");
-            $check->bind_param("i", $tierId);
-            $check->execute();
-            $existing = $check->get_result()->fetch_assoc();
+            if ($tierId) {
+                // Check if default tier - block min_spent change
+                $check = $conn->prepare("SELECT IS_DEFAULT, MIN_SPENT FROM membership_tier WHERE TIER_ID = ?");
+                $check->bind_param("i", $tierId);
+                $check->execute();
+                $existing = $check->get_result()->fetch_assoc();
 
-            if ($existing && $existing['IS_DEFAULT'] == 1) {
-                $min = (float)$existing['MIN_SPENT']; // Force keep original min_spent
+                if ($existing && $existing['IS_DEFAULT'] == 1) {
+                    $min = (float)$existing['MIN_SPENT']; // Force keep original min_spent
+                }
+
+                $stmt = $conn->prepare("UPDATE membership_tier SET TIER_NAME=?, MIN_SPENT=? WHERE TIER_ID=?");
+                $stmt->bind_param("sdi", $name, $min, $tierId);
+            } else {
+                $stmt = $conn->prepare("INSERT INTO membership_tier (TIER_NAME, MIN_SPENT, STATUS) VALUES (?, ?, 'Active')");
+                $stmt->bind_param("sd", $name, $min);
             }
-
-            $stmt = $conn->prepare("UPDATE membership_tier SET TIER_NAME=?, MIN_SPENT=? WHERE TIER_ID=?");
-            $stmt->bind_param("sdi", $name, $min, $tierId);
-        } else {
-            $stmt = $conn->prepare("INSERT INTO membership_tier (TIER_NAME, MIN_SPENT, STATUS) VALUES (?, ?, 'Active')");
-            $stmt->bind_param("sd", $name, $min);
-        }
             $stmt->execute();
             header("Location: settings.php?tab=tiers&success=1");
             exit;
         }
         $activeTab = 'tiers';
-    }
-
-    // ADD / EDIT CAKE STYLE
-    if (isset($_POST['save_style'])) {
-
-        // cake style name
-        if (empty(trim($_POST['style_name'] ?? '')))
-            addError('style_name', 'Style name is required.');
-        elseif (mb_strlen(trim($_POST['style_name'])) > 100)
-            addError('style_name', 'Style name must be 100 characters or less.');
-
-        if (empty($errors)) {
-            $styleId = !empty($_POST['style_id']) ? (int)$_POST['style_id'] : 0;
-            $name = trim($_POST['style_name']);
-            $dup = $conn->prepare("SELECT STYLE_ID FROM cake_style WHERE STYLE_NAME = ? AND STYLE_ID != ?");
-            $dup->bind_param("si", $name, $styleId);
-            $dup->execute();
-            if ($dup->get_result()->num_rows > 0)
-                addError('style_name', 'This style name already exists.');
-        }
-
-        // if no errors, save
-        if (empty($errors)) {
-            $name = trim($_POST['style_name']);
-
-            if (!empty($_POST['style_id'])) {
-                $stmt = $conn->prepare("UPDATE cake_style SET STYLE_NAME=? WHERE STYLE_ID=?");
-                $stmt->bind_param("si", $name, $_POST['style_id']);
-            } else {
-                $stmt = $conn->prepare("INSERT INTO cake_style (STYLE_NAME, STATUS) VALUES (?, 'Active')");
-                $stmt->bind_param("s", $name);
-            }
-            $stmt->execute();
-            header("Location: settings.php?tab=styles&success=1");
-            exit;
-        }
-        $activeTab = 'styles';
     }
 }
 
@@ -386,24 +201,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 if (isset($_GET['toggle_type']) && isset($_GET['id'])) {
 
     $id = (int)$_GET['id'];
-
-    // delivery slot
-    if ($_GET['toggle_type'] === 'slot') {
-        $conn->query("UPDATE delivery_slots SET STATUS = IF(STATUS='Active','Inactive','Active') WHERE SLOT_ID = $id");
-        header("Location: settings.php?tab=slots"); exit;
-    }
-
-    // delivery coverage
-    if ($_GET['toggle_type'] === 'coverage') {
-        $conn->query("UPDATE delivery_coverage SET STATUS = IF(STATUS='Active','Inactive','Active') WHERE COVERAGE_ID = $id");
-        header("Location: settings.php?tab=coverage"); exit;
-    }
-
-    // delivery date rules
-    if ($_GET['toggle_type'] === 'rule') {
-        $conn->query("UPDATE delivery_date_rules SET STATUS = IF(STATUS='Active','Inactive','Active') WHERE RULE_ID = $id");
-        header("Location: settings.php?tab=rules"); exit;
-    }
 
     $table = ($_GET['toggle_type'] === 'tier') ? 'membership_tier' : 'cake_style';
     $pk    = ($_GET['toggle_type'] === 'tier') ? 'TIER_ID'          : 'STYLE_ID';
@@ -430,16 +227,25 @@ $success   = isset($_GET['success']);
 
 // FETCH DATA
 $bakery   = $conn->query("SELECT * FROM bakery_info LIMIT 1")->fetch_assoc();
-$coverage = $conn->query("SELECT * FROM delivery_coverage ORDER BY STATE ASC, CITY ASC, POSTCODE ASC");
-$rules    = $conn->query("SELECT * FROM delivery_date_rules ORDER BY DATE ASC, DAY_OF_WEEK ASC");
-$slots    = $conn->query("SELECT * FROM delivery_slots ORDER BY START_TIME ASC");
-$tiers    = $conn->query("SELECT * FROM membership_tier ORDER BY MIN_SPENT ASC");
-$styles   = $conn->query("SELECT * FROM cake_style ORDER BY STYLE_NAME ASC");
-
-function getDayName($dayNo) {
-    $days = [1=>'Monday',2=>'Tuesday',3=>'Wednesday',4=>'Thursday',5=>'Friday',6=>'Saturday',7=>'Sunday'];
-    return $days[$dayNo] ?? '-';
+$tiersRes = $conn->query("SELECT * FROM membership_tier ORDER BY MIN_SPENT ASC");
+$tiers    = [];
+if ($tiersRes) {
+    $tiers = $tiersRes->fetch_all(MYSQLI_ASSOC);
 }
+
+// Calculate summary metric card data
+$activeTiersCount = 0;
+foreach ($tiers as $t) {
+    if (($t['STATUS'] ?? '') === 'Active') {
+        $activeTiersCount++;
+    }
+}
+
+$openDaysArray = !empty($bakery['OPEN_DAYS']) ? explode(',', $bakery['OPEN_DAYS']) : [];
+$openDaysCount = count($openDaysArray);
+
+$formattedOpenTime  = !empty($bakery['OPEN_TIME'])  ? date("g:i A", strtotime($bakery['OPEN_TIME']))  : 'N/A';
+$formattedCloseTime = !empty($bakery['CLOSE_TIME']) ? date("g:i A", strtotime($bakery['CLOSE_TIME'])) : 'N/A';
 ?>
 
 <!DOCTYPE html>
@@ -447,705 +253,773 @@ function getDayName($dayNo) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Settings</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <title>System Settings | Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="admin_global.css">
+    <link rel="stylesheet" href="global_manage.css">
 <style>
-body { 
-    margin:0; 
-    background:var(--primary-grey);
-    font-family: var(--font-family);
+:root {
+    --bg-page: #f4f5f8;
+    --card-bg: #ffffff;
+    --text-dark: #111827;
+    --text-muted: #71717a;
+    --text-light: #9ca3af;
+    --accent-lime: #d4f938;
+    --accent-lime-hover: #c4ec29;
+    --accent-lime-subtle: #f4fde6;
+    --dark-pill: #18181b;
+    --dark-pill-hover: #27272a;
+    --border-card: #edf0f3;
+    --border-subtle: #f1f3f6;
+    --shadow-soft: 0 4px 20px rgba(17, 24, 39, 0.035);
+    --shadow-hover: 0 10px 28px rgba(17, 24, 39, 0.07);
+    --radius-card: 20px;
+    --radius-pill: 9999px;
+    --font-heading: 'Plus Jakarta Sans', sans-serif;
+    --font-body: 'Inter', -apple-system, sans-serif;
 }
 
-.global-layout { 
-    display:flex; 
-    min-height:100vh; 
+body {
+    background-color: var(--bg-page);
+    font-family: var(--font-body);
+    color: var(--text-dark);
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
 }
 
-.main { 
-    flex:1; 
-    overflow-x:hidden; 
+.main {
+    padding: 24px 30px 40px !important;
 }
 
-/* SETTINGS LAYOUT */
-.settings-layout { 
-    display:flex; 
-    gap:24px; 
-    padding:24px; 
+.mgmt-main-cont {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
 }
 
-/* SIDEBAR */
+/* Header */
+.dash-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.dash-title-group {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.dash-title-badge {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-pill);
+    background: var(--accent-lime);
+    color: var(--text-dark);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 800;
+    box-shadow: 0 4px 12px rgba(212, 249, 56, 0.35);
+    position: relative;
+    cursor: default;
+}
+
+.dash-title-badge .badge-arrow {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    background: var(--text-dark);
+    color: var(--accent-lime);
+    width: 18px;
+    height: 18px;
+    border-radius: var(--radius-pill);
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+}
+
+.dash-title {
+    font-family: var(--font-heading);
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--text-muted);
+    line-height: 1.15;
+    margin: 0;
+    letter-spacing: -0.5px;
+}
+
+.dash-title strong {
+    color: var(--text-dark);
+    font-weight: 800;
+    font-size: 26px;
+    display: block;
+}
+
+.dash-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.live-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #ffffff;
+    border: 1px solid var(--border-card);
+    padding: 8px 16px;
+    border-radius: var(--radius-pill);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dark);
+    box-shadow: var(--shadow-soft);
+}
+
+.pulse-dot {
+    width: 8px;
+    height: 8px;
+    background: #22c55e;
+    border-radius: 50%;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+/* Summary Cards */
+.mgmt-sum-card-cont {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+}
+
+@media (max-width: 992px) {
+    .mgmt-sum-card-cont {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 480px) {
+    .mgmt-sum-card-cont {
+        grid-template-columns: 1fr;
+    }
+}
+
+.mgmt-sum-card {
+    background: var(--card-bg);
+    padding: 18px 20px;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-card);
+    box-shadow: var(--shadow-soft);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-width: 0;
+    position: relative;
+    overflow: hidden;
+}
+
+.mgmt-sum-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-hover);
+    border-color: #d1d5db;
+}
+
+.mgmt-card-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: var(--text-muted);
+    margin: 0 0 8px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.mgmt-card-title .card-tag {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-page);
+    font-weight: 700;
+}
+
+.mgmt-card-value {
+    font-family: var(--font-heading);
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text-dark);
+    margin: 0;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Settings Layout Grid */
+.settings-layout {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 20px;
+    align-items: start;
+}
+
+@media (max-width: 900px) {
+    .settings-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Settings Sidebar Nav */
 .settings-sidebar {
-    width:220px; 
-    flex-shrink:0; 
-    background:#fff;
-    border-radius:12px; 
-    padding:20px;
-    box-shadow:0 2px 10px rgba(0,0,0,0.06);
-    height:fit-content; 
-    position:sticky; 
-    top:24px;
+    background: var(--card-bg);
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-card);
+    padding: 20px;
+    box-shadow: var(--shadow-soft);
+    position: sticky;
+    top: 24px;
 }
 
 .sidebar-section-label {
-    font-size:11px; 
-    font-weight:700; 
-    color:#9ca3af;
-    margin-bottom:10px; 
-    text-transform:uppercase; 
-    letter-spacing:.7px;
+    font-family: var(--font-heading);
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+.settings-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .nav-link {
-    display:flex; 
-    align-items:center; 
-    gap:10px;
-    padding:10px 12px; 
-    border-radius:8px; 
-    text-decoration:none;
-    color:#374151; 
-    margin-bottom:4px;
-    transition:background .15s,color .15s; font-size:14px; font-weight:500;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 16px;
+    border-radius: 12px;
+    text-decoration: none;
+    color: var(--text-dark);
+    font-family: var(--font-heading);
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.2s ease;
 }
 
-.nav-link:hover { 
-    background:var(--primary-light); 
+.nav-link i {
+    font-size: 16px;
+    color: var(--text-muted);
+    transition: color 0.2s ease;
 }
 
-.nav-link.active { 
-    background:var(--primary-dark); 
-    color: var(--primary-white); 
+.nav-link:hover {
+    background: var(--bg-page);
+    color: var(--text-dark);
 }
 
-.nav-link i { 
-    margin-right: 3px;
-    color: var(--primary-light);
+.nav-link:hover i {
+    color: var(--text-dark);
 }
 
-.sidebar-divider { 
-    border:none; 
-    border-top:1px solid #f0f0f0; 
-    margin:14px 0; 
+.nav-link.active {
+    background: var(--dark-pill);
+    color: #ffffff;
+    box-shadow: 0 4px 14px rgba(24, 24, 27, 0.15);
 }
 
-/* CONTENT */
-.settings-content { 
-    flex:1; 
-    min-width:0; 
+.nav-link.active i {
+    color: var(--accent-lime);
 }
 
-.page-header { 
-    margin-bottom:22px; 
+.sidebar-divider {
+    border: none;
+    border-top: 1px solid var(--border-subtle);
+    margin: 14px 0;
 }
 
-.page-title { 
-    margin:0; 
-    font-size:24px; 
-    font-weight:700; 
-    color:#111827; 
+/* Settings Content Container */
+.settings-content {
+    min-width: 0;
 }
 
-.page-subtitle { 
-    margin-top:5px; 
-    color:#6b7280; 
-    font-size:14px; 
-}
-
-/* CARDS */
+/* Section Cards */
 .section-card {
-    background:#fff; 
-    border-radius:14px; 
-    padding:24px;
-    box-shadow:0 2px 10px rgba(0,0,0,0.05); 
-    margin-bottom:24px;
+    background: var(--card-bg);
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-card);
+    padding: 28px;
+    box-shadow: var(--shadow-soft);
+    margin-bottom: 24px;
 }
 
-.section-header { 
-    margin-bottom:18px; 
-    padding-bottom:16px; 
-    border-bottom:1px solid #f3f4f6; 
+.section-header {
+    margin-bottom: 22px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-subtle);
 }
 
-.section-title { 
-    font-size:16px; 
-    font-weight:700; 
-    color:#111827; 
+.section-title {
+    font-family: var(--font-heading);
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text-dark);
 }
 
-.section-desc { 
-    font-size:13px; 
-    color:#9ca3af; 
-    margin-top:3px; 
+.section-desc {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    margin-top: 4px;
 }
 
-/* FORMS */
-.edit-form { 
-    display:grid; 
-    grid-template-columns:1fr 1fr; 
-    gap:16px; 
-}
-
-.edit-form .full { 
-    grid-column:span 2; 
-}
-
-.edit-form label { 
-    display:block; 
-    font-size:13px; 
-    font-weight:600; 
-    color:#374151; 
-    margin-bottom:6px; 
-}
-
-.edit-form input,.edit-form textarea,.edit-form select {
-    width:100%; 
-    padding:10px 12px; 
-    border:1px solid #e5e7eb;
-    border-radius:8px; 
-    font-size:14px; 
-    outline:none;
-    transition:border-color .2s,box-shadow .2s; 
-    box-sizing:border-box; 
-    background:#fff;
-}
-
-.edit-form input:focus,.edit-form textarea:focus,.edit-form select:focus {
-    border-color: var(--primary-dark); 
-}
-
-.edit-form textarea { 
-    resize:vertical; 
-    min-height:90px; 
-}
-
-.form-row { 
-    display:flex; 
-    gap:12px; 
-    align-items:flex-end; 
-    flex-wrap:wrap; 
-    margin-bottom:20px; 
-}
-
-.form-group { 
-    flex:1; 
-}
-
-.form-group.narrow { 
-    max-width:180px; 
-}
-
-.form-label { 
-    display:block; 
-    font-size:13px; 
-    font-weight:600; 
-    color:#374151; 
-    margin-bottom:6px; 
-}
-
-.form-input {
-    width:100%; 
-    padding:10px 12px; 
-    border:1px solid #e5e7eb;
-    border-radius:8px; 
-    font-size:14px; 
-    outline:none;
-    transition:border-color .2s,box-shadow .2s; 
-    box-sizing:border-box; 
-    background:#fff;
-}
-
-.form-input:focus { 
-    border-color: var(--primary-dark); 
-}
-
-/* RULE FORM */
-.rule-form-wrapper { 
-    margin-bottom:20px; 
-    padding-bottom:20px; 
-    border-bottom:1px solid #f3f4f6; 
-}
-
-.rule-mode-tabs {
-    display:flex; 
-    margin-bottom:16px;
-    border:1px solid #e5e7eb; 
-    border-radius:8px; 
-    overflow:hidden; 
-    width:fit-content;
-}
-
-.rule-mode-tab {
-    padding:8px 20px; 
-    font-size:13px; 
-    font-weight:600;
-    cursor:pointer; 
-    background:#f9fafb; 
-    color:#6b7280;
-    border:none; 
-    transition:background .15s,color .15s;
-}
-
-.rule-mode-tab.active { 
-    background: var(--primary-dark); 
-    color: var(--primary-white); 
-}
-
-.rule-fields { 
-    display:flex; 
-    gap:12px; 
-    align-items:flex-end; 
-    flex-wrap:wrap; 
-}
-
-.rule-fields .fg { 
-    flex:1; 
-    min-width:140px;
-}
-
-.rule-fields label { 
-    display:block; 
-    font-size:13px; 
-    font-weight:600; 
-    color:#374151; 
-    margin-bottom:6px; 
-}
-
-.rule-fields input,.rule-fields select {
-    width:100%; 
-    padding:10px 12px; 
-    border:1px solid #e5e7eb;
-    border-radius:8px; 
-    font-size:14px; 
-    outline:none;
-    transition:border-color .2s; 
-    box-sizing:border-box; 
-    background:#fff;
-}
-
-.rule-fields input:focus,.rule-fields select:focus { 
-    border-color: var(--primary-dark); 
-}
-
-/* SLOT FORM */
-.slot-form-row {
-    display:flex; 
-    gap:12px; 
-    align-items:flex-end; 
-    flex-wrap:wrap;
-    margin-bottom:20px; 
-    padding-bottom:20px; 
-    border-bottom:1px solid #f3f4f6;
-}
-
-.slot-form-row .fg { 
-    flex:1; 
-    min-width:120px; 
-}
-
-.slot-form-row label { 
-    display:block; 
-    font-size:13px; 
-    font-weight:600; 
-    color:#374151; 
-    margin-bottom:6px; 
-}
-
-.slot-form-row input[type="time"] {
-    width:100%; 
-    padding:10px 12px; 
-    border:1px solid #e5e7eb;
-    border-radius:8px; 
-    font-size:14px; 
-    outline:none; 
-    box-sizing:border-box; 
-    transition:border-color .2s;
-}
-
-.slot-form-row input[type="time"]:focus { 
-    border-color:#111827; 
-}
-
-/* BUTTONS */
-.btn-save { 
-    grid-column:span 2; 
-    background: var(--primary-dark); 
-    color: var(--primary-white); 
-    padding:11px; 
-    border:none; 
-    border-radius:8px; 
-    cursor:pointer; 
-    font-size:14px; 
-    font-weight:600; 
-    transition:background .15s; 
-}
-
-.btn-add { 
-    border:none; 
-    background: var(--primary-dark); 
-    color: var(--primary-white); 
-    padding:10px 16px; 
-    border-radius:8px; 
-    cursor:pointer; 
-    display:inline-flex; 
-    align-items:center; 
-    gap:6px; 
-    font-size:13px; 
-    font-weight:600; 
-    white-space:nowrap; 
-    transition:background .15s; 
-    text-decoration:none; 
-}
-
-.btn-toggle { 
-    text-decoration:none; 
-    background:#f3f4f6; 
-    color:#374151; 
-    padding:6px 12px; 
-    border-radius:6px; 
-    font-size:12px; 
-    font-weight:600; 
-    display:inline-block; 
-    transition:background .15s;
-    border:1px solid #e5e7eb; 
-}
-
-.btn-edit { 
-    text-decoration:none; 
-    background:#eff6ff; 
-    color:#1d4ed8; 
-    padding:6px 12px; 
-    border-radius:6px; 
-    font-size:12px; 
-    font-weight:600; 
-    display:inline-block; 
-    transition:background .15s; 
-    border:1px solid #bfdbfe; 
-    cursor:pointer; 
-}
-
-.btn-cancel { 
-    background:#f3f4f6; 
-    color:#374151; 
-    border:1px solid #e5e7eb; 
-    padding:10px 18px; 
-    border-radius:8px; 
-    cursor:pointer; 
-    font-size:13px; 
-    font-weight:600; 
-    transition:background .15s; 
-}
-
-.btn-cancel:hover { 
-    background:#e5e7eb; 
-}
-
-.btn-confirm { 
-    background: var(--primary-dark);
-    color: var(--primary-white); 
-    border:none; 
-    padding:10px 18px; 
-    border-radius:8px; 
-    cursor:pointer; 
-    font-size:13px; 
-    font-weight:600; 
-    transition:background .15s; 
-}
+/* Forms */
+.edit-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+@media (max-width: 640px) {
+    .edit-form {
+        grid-template-columns: 1fr;
+    }
+}
 
-.btn-save:hover,
-.btn-add:hover,
-.btn-toggle:hover,
-.btn-edit:hover,
-.btn-confirm:hover { 
-    background: var(--primary-light); 
+.edit-form .full {
+    grid-column: span 2;
 }
 
-button i {
-    color: var(--primary-light);
+@media (max-width: 640px) {
+    .edit-form .full {
+        grid-column: span 1;
+    }
 }
 
-.action-group { 
-    display:flex; 
-    gap:6px; 
-    align-items:center; 
-    flex-wrap:wrap; 
+.edit-form label,
+.form-label {
+    display: block;
+    font-family: var(--font-heading);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-dark);
+    margin-bottom: 8px;
+}
+
+.form-input,
+.edit-form input,
+.edit-form textarea,
+.edit-form select {
+    width: 100%;
+    padding: 11px 16px;
+    border: 1px solid var(--border-card);
+    border-radius: 12px;
+    font-size: 14px;
+    font-family: var(--font-body);
+    color: var(--text-dark);
+    outline: none;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+    background: #ffffff;
 }
 
-/* TABLES */
-.data-table { 
-    width:100%; 
-    border-collapse:collapse; 
-    font-size:14px; 
-}
-
-.data-table th { 
-    background:#f9fafb; 
-    padding:12px 14px; 
-    text-align:left; 
-    border-bottom:1px solid #e5e7eb; 
-    font-size:12px; 
-    font-weight:700; 
-    color:#6b7280; 
-    text-transform:uppercase; 
-    letter-spacing:.5px; 
-}
+.form-input:focus,
+.edit-form input:focus,
+.edit-form textarea:focus,
+.edit-form select:focus {
+    border-color: var(--dark-pill);
+    box-shadow: 0 0 0 3px rgba(212, 249, 56, 0.4);
+}
+
+.edit-form textarea {
+    resize: vertical;
+    min-height: 95px;
+}
+
+.form-row {
+    display: flex;
+    gap: 14px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+    background: var(--bg-page);
+    padding: 20px;
+    border-radius: 16px;
+    border: 1px solid var(--border-card);
+}
 
-.data-table td { 
-    padding:13px 14px; 
-    border-bottom:1px solid #f3f4f6; 
-    vertical-align:middle; 
-    color:#374151; 
-}
+.form-group {
+    flex: 1;
+    min-width: 200px;
+}
 
-.data-table tbody tr:last-child td { 
-    border-bottom:none; 
+.form-group.narrow {
+    max-width: 200px;
 }
 
-.data-table tbody tr:hover td {
-    background:#fafafa; 
+/* Open Days Interactive Selector */
+.days-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.day-checkbox-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--border-card);
+    background: var(--bg-page);
+    color: var(--text-dark);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
 }
 
-.cell-name { 
-    font-weight:600; 
-    color:#111827; 
+.day-checkbox-pill:hover {
+    border-color: #d1d5db;
+    background: #ffffff;
+}
+
+.day-checkbox-pill input[type="checkbox"] {
+    accent-color: var(--dark-pill);
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+/* Buttons */
+.btn-save {
+    grid-column: span 2;
+    background: var(--dark-pill);
+    color: #ffffff;
+    padding: 13px 28px;
+    border: none;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    font-family: var(--font-heading);
+    font-size: 14px;
+    font-weight: 700;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 14px rgba(24, 24, 27, 0.15);
+}
+
+@media (max-width: 640px) {
+    .btn-save {
+        grid-column: span 1;
+    }
+}
+
+.btn-save:hover {
+    background: var(--dark-pill-hover);
+    transform: translateY(-1px);
+}
+
+.btn-add {
+    border: none;
+    background: var(--dark-pill);
+    color: #ffffff !important;
+    padding: 11px 22px;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-heading);
+    font-size: 13.5px;
+    font-weight: 700;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    box-shadow: 0 4px 14px rgba(24, 24, 27, 0.15);
+}
+
+.btn-add i {
+    color: #ffffff;
+}
+
+#tierBtnLabel
+{
+    color:#ffffff;
+}
+
+.btn-add:hover {
+    background: var(--dark-pill-hover);
+    transform: translateY(-1px);
+}
+
+.btn-toggle {
+    text-decoration: none;
+    background: var(--dark-pill);
+    color: #ffffff;
+    padding: 7px 15px;
+    border-radius: var(--radius-pill);
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.2s ease;
+    border: none;
+}
+
+.btn-toggle i {
+    color: #ffffff;
 }
-
-.cell-amount { 
-    font-weight:600; 
-    color:#111827; 
+
+.btn-toggle:hover {
+    background: var(--dark-pill-hover);
+    color: #ffffff;
 }
 
-/* BADGES */
-.badge { 
-    padding:4px 10px; 
-    border-radius:999px; 
-    font-size:11px; 
-    font-weight:700; 
-    display:inline-block; 
-    text-transform:uppercase; 
-    letter-spacing:.4px; 
+.btn-edit {
+    text-decoration: none;
+    background: var(--bg-page);
+    color: var(--text-dark);
+    padding: 7px 15px;
+    border-radius: var(--radius-pill);
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.2s ease;
+    border: 1px solid var(--border-card);
+    cursor: pointer;
 }
 
-.badge-active    { 
-    background:#dcfce7; 
-    color:#166534;
-}
+.btn-edit:hover {
+    background: #ffffff;
+    border-color: #d1d5db;
+}
 
-.badge-inactive  { 
-    background:#fee2e2; 
-    color:#991b1b; 
+.btn-cancel {
+    background: var(--bg-page);
+    color: var(--text-dark);
+    border: 1px solid var(--border-card);
+    padding: 11px 20px;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    font-family: var(--font-heading);
+    font-size: 13.5px;
+    font-weight: 600;
+    transition: all 0.2s ease;
 }
 
-.badge-date      { 
-    background:#dbeafe; 
-    color:#1e40af; 
-
+.btn-cancel:hover {
+    background: #ffffff;
+    border-color: #d1d5db;
 }
-.badge-recurring { 
-    background:#fef3c7; 
-    color:#92400e; 
-}
 
-/* EMPTY STATE */
-.empty-state { 
-    text-align:center;
-    color:#9ca3af; 
-    padding:32px 24px; 
-    font-size:14px; 
+.action-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
 }
 
-/* TABLE TOOLBAR */
-.table-toolbar { 
-    display:flex; 
-    justify-content:space-between; 
-    align-items:center; 
-    margin-bottom:16px; 
-    flex-wrap:wrap; 
-    gap:10px; 
-}
+/* Data Table */
+.mgmt-tbl {
+    width: 100%;
+    overflow-x: auto;
+}
 
-.table-count { 
-    font-size:13px; 
-    color:#9ca3af; 
+.mgmt-tbl table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: var(--card-bg);
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-card);
+    box-shadow: var(--shadow-soft);
+    overflow: hidden;
 }
 
-/* MODAL */
-.modal-overlay { 
-    display:none; 
-    position:fixed; 
-    inset:0; 
-    background:rgba(0,0,0,0.45); 
-    z-index:1000; 
-    align-items:center; 
-    justify-content:center; 
+.mgmt-tbl th {
+    background: #fafbfc;
+    color: var(--text-muted);
+    padding: 15px 18px;
+    font-family: var(--font-heading);
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid var(--border-card);
+    vertical-align: middle;
+    text-align: left;
 }
 
-.modal-overlay.open { 
-    display:flex; 
+.mgmt-tbl td {
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--border-subtle);
+    vertical-align: middle;
+    color: var(--text-dark);
+    font-size: 14px;
 }
 
-.modal-box { 
-    background:#fff; 
-    border-radius:16px;
-    padding:28px; 
-    width:100%; 
-    max-width:480px; 
-    box-shadow:0 20px 60px rgba(0,0,0,0.18); 
-    animation:slideUp .25s ease; 
+.mgmt-tbl tbody tr {
+    transition: background 0.15s ease;
 }
 
-@keyframes slideUp { 
-    from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} 
+.mgmt-tbl tbody tr:hover {
+    background: #fbfcfd;
 }
 
-.modal-header { 
-    display:flex; 
-    justify-content:space-between; 
-    align-items:center; 
-    margin-bottom:22px; 
+.mgmt-tbl tbody tr:last-child td {
+    border-bottom: none;
 }
 
-.modal-title { 
-    font-size:17px; 
-    font-weight:700; 
-    color:#111827; 
+.cell-name {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    color: var(--text-dark);
 }
 
-.modal-close { 
-    background:none; 
-    border:none; 
-    cursor:pointer; 
-    padding:4px; 
-    color:#9ca3af; 
-    line-height:1; 
-    font-size:20px; 
+.cell-amount {
+    font-weight: 600;
+    color: var(--text-dark);
 }
 
-.modal-close:hover { 
-    color:#111827; 
+/* Badges */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 12px;
+    border-radius: var(--radius-pill);
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
 }
 
-.modal-form-grid { 
-    display:grid; 
-    grid-template-columns:1fr 1fr; 
-    gap:14px; 
+.badge-active {
+    background: var(--accent-lime);
+    color: var(--text-dark);
 }
 
-.modal-form-grid .full { 
-    grid-column:span 2; 
+.badge-inactive {
+    background: var(--bg-page);
+    color: var(--text-muted);
+    border: 1px solid var(--border-card);
 }
 
-.modal-label { 
-    display:block; 
-    font-size:13px; 
-    font-weight:600; 
-    color:#374151; 
-    margin-bottom:6px; 
+/* Image Box */
+.image-upload-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--bg-page);
+    padding: 16px;
+    border-radius: 16px;
+    border: 1px dashed #d1d5db;
 }
 
-.modal-input { 
-    width:100%; 
-    padding:10px 12px; 
-    border:1px solid #e5e7eb; 
-    border-radius:8px; 
-    font-size:14px; 
-    outline:none; 
-    box-sizing:border-box; 
-    transition:border-color .2s,box-shadow .2s; 
+.image-preview-thumb {
+    width: 90px;
+    height: 90px;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid var(--border-card);
+    box-shadow: var(--shadow-soft);
 }
 
-.modal-input:focus { 
-    border-color: var(--primary-dark); 
+.image-upload-controls {
+    flex: 1;
 }
 
-.modal-footer { 
-    display:flex; 
-    gap:10px; 
-    justify-content:flex-end; 
-    margin-top:22px; 
+/* Empty State */
+.empty-state {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 40px 24px;
+    font-size: 14px;
 }
 
-/* VALIDATION */
-.input-error { 
-    border-color:#ef4444 !important; 
-    box-shadow:0 0 0 3px rgba(239,68,68,.08) !important; 
+.empty-state i {
+    font-size: 28px;
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-light);
 }
 
-.field-error { 
-    color:#ef4444; 
-    font-size:12px; 
-    margin-top:5px; 
-    display:flex; 
-    align-items:center; 
-    gap:4px; 
-    font-weight:500; 
+/* Field Validation Error */
+.input-error {
+    border-color: #ef4444 !important;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
 }
 
-.field-error::before { 
-    content:"!"; 
-    display:inline-flex; 
-    align-items:center; 
-    justify-content:center;
-    width:14px; height:14px; 
-    background:#ef4444; 
-    color:#fff; 
-    border-radius:50%; 
-    font-size:10px; 
-    font-weight:700; 
-    flex-shrink:0; 
+.field-error {
+    color: #ef4444;
+    font-size: 12.5px;
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
 }
 
-/* TOAST */
+/* Toast */
 .toast {
-    position:fixed; 
-    top:24px; 
-    left:50%; 
-    transform:translateX(-50%);
-    padding:12px 40px 12px 18px; 
-    border-radius:8px; 
-    color:#fff !important;
-    font-size:14px; 
-    z-index:9999; 
-    opacity:1; 
-    transition:all .4s ease;
-    min-width:180px; 
-    text-align:center;
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    padding: 14px 20px;
+    border-radius: var(--radius-pill);
+    color: #ffffff !important;
+    font-family: var(--font-heading);
+    font-size: 13.5px;
+    font-weight: 700;
+    z-index: 9999;
+    box-shadow: 0 10px 28px rgba(17, 24, 39, 0.15);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: slideIn 0.3s ease;
 }
 
-.toast span { 
-    color:#fff !important; 
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
-.toast.success { 
-    background:#22c55e; 
-}
-
-.toast.error   { 
-    background:#ef4444; 
-}
+.toast.success { background: #15803d; }
+.toast.error   { background: #b91c1c; }
 
 .toast-close-btn {
-    position:absolute; 
-    top:6px; 
-    right:6px; 
-    width:22px; 
-    height:22px;
-    display:flex; 
-    align-items:center; 
-    justify-content:center;
-    font-size:16px; 
-    font-weight:bold; 
-    border-radius:50%;
-    background:rgba(255,255,255,0.2); 
-    color:white; 
-    cursor:pointer;
-    transition:all .2s ease; 
-    line-height:1;
+    cursor: pointer;
+    opacity: 0.8;
+    font-size: 16px;
+    line-height: 1;
 }
 
-.toast-close-btn:hover { 
-    background:rgba(255,255,255,0.35); 
-    transform:scale(1.1); 
-}
+.toast-close-btn:hover { opacity: 1; }
 </style>
 </head>
 
@@ -1153,727 +1027,349 @@ button i {
 <div class="global-layout">
     <?php include "global_layout_ctrl.php"; ?>
     <div class="main">
-        <div class="settings-layout">
+        <div class="mgmt-main-cont">
 
-            <!-- SIDEBAR -->
-            <aside class="settings-sidebar">
-                <div class="sidebar-section-label">Configuration</div>
-                <a href="?tab=bakery"   class="nav-link <?= $activeTab==='bakery'?'active':'' ?>">
-                    <i class="bi bi-shop"></i> Bakery Info</a>
-                <a href="?tab=coverage" class="nav-link <?= $activeTab==='coverage'?'active':'' ?>">
-                    <i class="bi bi-geo-alt"></i> Delivery Coverage</a>
-                <a href="?tab=rules"    class="nav-link <?= $activeTab==='rules'?'active':'' ?>">
-                    <i class="bi bi-journal-text"></i> Delivery Rules</a>
-                <a href="?tab=slots"    class="nav-link <?= $activeTab==='slots'?'active':'' ?>">
-                    <i class="bi bi-clock"></i> Delivery Slots</a>
-                <hr class="sidebar-divider">
-                <a href="?tab=tiers"    class="nav-link <?= $activeTab==='tiers'?'active':'' ?>">
-                    <i class="bi bi-gem"></i> Membership Tiers</a>
-                <a href="?tab=styles"   class="nav-link <?= $activeTab==='styles'?'active':'' ?>">
-                    <i class="bi bi-palette"></i>Cake Styles</a>
-            </aside>
-
-            <!-- CONTENT -->
-            <div class="settings-content">
-
-                <!-- BAKERY INFO -->
-                <?php if ($activeTab === 'bakery'): ?>
-                <div class="page-header">
-                    <h1 class="page-title">Bakery Information</h1>
-                    <p class="page-subtitle">Manage your bakery's details and contact information.</p>
-                </div>
-                <div class="section-card">
-                    <div class="section-header">
-                        <div class="section-title">Shop Details</div>
-                        <div class="section-desc">This information may appear on receipts, website, and customer communications.</div>
+            <!-- Page Header -->
+            <div class="dash-header">
+                <div class="dash-title-group">
+                    <div class="dash-title-badge">
+                        <i class="bi bi-gear-fill"></i>
+                        <div class="badge-arrow">↗</div>
                     </div>
-
-                    <form method="POST" class="edit-form" enctype="multipart/form-data">
-                        <input type="hidden" name="update_bakery" value="1">
-                        <input type="hidden" name="existing_shop_image" value="<?= htmlspecialchars($bakery['SHOP_IMAGE'] ?? '') ?>">
-
-                        <!-- Shop Image -->
-                        <div class="full">
-                            <label>Shop Image</label>
-                            <?php if (!empty($bakery['SHOP_IMAGE'])): ?>
-                                <div style="margin-bottom:10px">
-                                    <img src="<?= htmlspecialchars($bakery['SHOP_IMAGE']) ?>"
-                                    style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;">
-                                </div>
-                            <?php endif; ?>
-                            <input type="file" name="shop_image" accept="image/*" class="<?= hasError('shop_image') ? 'input-error' : '' ?>"
-                            style="width:100%;padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;font-size:14px;box-sizing:border-box;background:#fff">
-                            <small style="color:#9ca3af;font-size:12px;margin-top:4px;display:block">Accepted: JPG, PNG, WEBP. Max 2MB. Leave empty to keep current image.</small>
-                            <?php if (hasError('shop_image')): ?><div class="field-error"><?= getError('shop_image') ?></div><?php endif; ?>
-                        </div>
-
-                        <!-- Shop Name -->
-                        <div>
-                            <label>Shop Name <span style="color:#ef4444">*</span></label>
-                            <input name="shop_name" class="<?= fieldClass('shop_name') ?>" value="<?= htmlspecialchars($_POST['shop_name'] ?? $bakery['SHOP_NAME'] ?? '') ?>" placeholder="Your shop name" required maxlength="100">
-                            <?php if (hasError('shop_name')): ?><div class="field-error"><?= getError('shop_name') ?></div><?php endif; ?>
-                        </div>
-
-                        <!-- Phone -->
-                        <div>
-                            <label>Phone Number <span style="color:#ef4444">*</span></label>
-                            <input name="phone" class="<?= fieldClass('phone') ?>" value="<?= htmlspecialchars($_POST['phone'] ?? $bakery['PHONE'] ?? '') ?>" placeholder="e.g. +60112345678" maxlength="20" required>
-                            <?php if (hasError('phone')): ?><div class="field-error"><?= getError('phone') ?></div><?php endif; ?>
-                        </div>
-
-                        <!-- Email -->
-                        <div>
-                            <label>Email Address <span style="color:#ef4444">*</span></label>
-                            <input type="email" name="email" class="<?= fieldClass('email') ?>" value="<?= htmlspecialchars($_POST['email'] ?? $bakery['EMAIL'] ?? '') ?>" placeholder="abc@bakery.com" maxlength="255" required>
-                            <?php if (hasError('email')): ?><div class="field-error"><?= getError('email') ?></div><?php endif; ?>
-                        </div>
-
-                        <!-- Postcode -->
-                        <div>
-                            <label>Postcode <span style="color:#ef4444">*</span></label>
-                            <input name="postcode" class="<?= fieldClass('postcode') ?>" value="<?= htmlspecialchars($_POST['postcode'] ?? $bakery['POSTCODE'] ?? '') ?>" placeholder="e.g. xxxxx" maxlength="5" pattern="[0-9]{5}" title="5-digit postcode" required>
-                            <?php if (hasError('postcode')): ?><div class="field-error"><?= getError('postcode') ?></div><?php endif; ?>
-                        </div>
-
-                        <!-- Address -->
-                        <div class="full">
-                            <label>Address <span style="color:#ef4444">*</span></label>
-                            <textarea name="address" class="<?= hasError('address') ? 'input-error' : '' ?>" placeholder="Street address..." required><?= htmlspecialchars($_POST['address'] ?? $bakery['ADDRESS'] ?? '') ?></textarea>
-                            <?php if (hasError('address')): ?><div class="field-error"><?= getError('address') ?></div><?php endif; ?>
-                        </div>
- 
-                        <!-- City -->
-                        <div>
-                            <label>City <span style="color:#ef4444">*</span></label>
-                            <input name="city" class="<?= fieldClass('city') ?>" value="<?= htmlspecialchars($_POST['city'] ?? $bakery['CITY'] ?? '') ?>" placeholder="e.g. Kulai" required>
-                            <?php if (hasError('city')): ?><div class="field-error"><?= getError('city') ?></div><?php endif; ?>
-                        </div>
-
-                        <!-- State -->
-                        <div>
-                            <label>State <span style="color:#ef4444">*</span></label>
-                            <input name="state" class="<?= fieldClass('state') ?>" value="<?= htmlspecialchars($_POST['state'] ?? $bakery['STATE'] ?? '') ?>" placeholder="e.g. Johor" required>
-                            <?php if (hasError('state')): ?><div class="field-error"><?= getError('state') ?></div><?php endif; ?>
-                        </div>
-
-                        <!-- Bakery Description -->
-                        <div class="full">
-                            <label>Bakery Description <span style="color:#ef4444">*</span></label>
-                            <textarea name="bakery_des" class="<?= hasError('bakery_des') ? 'input-error' : '' ?>" placeholder="Describe your bakery..." maxlength="300" required><?= htmlspecialchars($_POST['bakery_des'] ?? $bakery['BAKERY_DES'] ?? '') ?></textarea>
-                            <small style="color:#9ca3af;font-size:12px;margin-top:4px;display:block;text-align:right;">Maximum 300 characters</small>
-                            <?php if (hasError('bakery_des')): ?><div class="field-error"><?= getError('bakery_des') ?></div><?php endif; ?>
-                        </div>
-
-                        <!-- Open Time -->
-                        <div>
-                            <label>Opening Time <span style="color:#ef4444">*</span></label>
-                            <input type="time" name="open_time" class="<?= fieldClass('open_time') ?>" value="<?= htmlspecialchars($_POST['open_time'] ?? $bakery['OPEN_TIME'] ?? '') ?>" required>
-                            <?php if (hasError('open_time')): ?><div class="field-error"><?= getError('open_time') ?></div><?php endif; ?>
-                        </div>
-
-                        <!-- Close Time -->
-                        <div>
-                            <label>Closing Time <span style="color:#ef4444">*</span></label>
-                            <input type="time" name="close_time" class="<?= fieldClass('close_time') ?>" value="<?= htmlspecialchars($_POST['close_time'] ?? $bakery['CLOSE_TIME'] ?? '') ?>" required>
-                            <?php if (hasError('close_time')): ?><div class="field-error"><?= getError('close_time') ?></div><?php endif; ?>
-                        </div>
-
-                        <!-- Open Days -->
-                        <div class="full">
-                            <label>Open Days <span style="color:#ef4444">*</span></label>
-                            <?php
-                                $savedDays = explode(',', $_POST['open_days_raw'] ?? $bakery['OPEN_DAYS'] ?? '');
-                                // If submitted as array (on validation fail), use that
-                                if (!empty($_POST['open_days']) && is_array($_POST['open_days'])) {
-                                    $savedDays = $_POST['open_days'];
-                                }
-                                $dayOptions = [
-                                   'Mon' => 'Monday', 'Tue' => 'Tuesday', 'Wed' => 'Wednesday',
-                                   'Thu' => 'Thursday', 'Fri' => 'Friday', 'Sat' => 'Saturday', 'Sun' => 'Sunday'
-                                ];
-                            ?>
-                            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
-                                <?php foreach ($dayOptions as $val => $label): ?>
-                                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:500;font-size:14px;color:#374151;background:#f9fafb;border:1px solid <?= hasError('open_days') ? '#ef4444' : '#e5e7eb' ?>;border-radius:8px;padding:8px 14px;user-select:none;">
-                                        <input type="checkbox" name="open_days[]" value="<?= $val ?>"
-                                        style="width:15px;height:15px;accent-color:var(--primary-dark);cursor:pointer"
-                                        <?= in_array($val, $savedDays) ? 'checked' : '' ?>>
-                                        <?= $label ?>
-                                    </label>
-                                <?php endforeach; ?>
-                            </div>
-                            <?php if (hasError('open_days')): ?><div class="field-error" style="margin-top:6px"><?= getError('open_days') ?></div><?php endif; ?>
-                        </div>
-
-                        <button type="submit" class="btn-save">Save Changes</button>
-                    </form>
-                </div>
-
-                <!-- DELIVERY COVERAGE -->
-                <?php elseif ($activeTab === 'coverage'): ?>
-                <div class="page-header">
-                    <h1 class="page-title">Delivery Coverage</h1>
-                    <p class="page-subtitle">Manage supported delivery areas and fees.</p>
-                </div>
-                <div class="section-card">
-                    <div class="table-toolbar">
-                        <div class="table-count">
-                            <?php $cnt=$coverage?$coverage->num_rows:0; echo "$cnt area".($cnt!=1?'s':'')." configured"; $coverage->data_seek(0); ?>
-                        </div>
-                        <button class="btn-add" onclick="openCoverageModal()">
-                            <i class="bi bi-plus-lg"></i>
-                            Add Coverage
-                        </button>
+                    <div>
+                        <h1 class="dash-title">System <strong>Settings & Configuration</strong></h1>
                     </div>
-                    <table class="data-table">
-                        <thead>
-                            <tr><th>Postcode</th><th>City</th><th>State</th><th>Delivery Fee</th><th>Status</th><th>Actions</th></tr>
-                        </thead>
-                        <tbody>
-                            <?php if ($coverage && $coverage->num_rows > 0): ?>
-                                <?php while($row = $coverage->fetch_assoc()): ?>
-                                <tr>
-                                    <td><?= htmlspecialchars($row['POSTCODE']) ?></td>
-                                    <td class="cell-name"><?= htmlspecialchars($row['CITY']) ?></td>
-                                    <td><?= htmlspecialchars($row['STATE']) ?></td>
-                                    <td class="cell-amount">RM <?= number_format($row['DELIVERY_FEE'],2) ?></td>
-                                    <td><span class="badge badge-<?= strtolower($row['STATUS']) ?>"><?= htmlspecialchars($row['STATUS']) ?></span></td>
-                                    <td>
-                                        <div class="action-group">
-                                            <button class="btn-edit" onclick="editCoverage(<?= $row['COVERAGE_ID'] ?>,'<?= addslashes($row['POSTCODE']) ?>','<?= addslashes($row['CITY']) ?>','<?= addslashes($row['STATE']) ?>','<?= $row['DELIVERY_FEE'] ?>')">Edit</button>
-                                            <a class="btn-toggle" href="?toggle_type=coverage&id=<?= $row['COVERAGE_ID'] ?>">Toggle</a>
+                </div>
+                <div class="dash-header-controls">
+                    <span class="live-pill"><span class="pulse-dot"></span> System Configured</span>
+                </div>
+            </div>
+
+            <!-- Settings Layout Grid -->
+            <div class="settings-layout">
+
+                <!-- SIDEBAR -->
+                <aside class="settings-sidebar">
+                    <div class="sidebar-section-label">Configuration</div>
+                    <nav class="settings-nav">
+                        <a href="?tab=bakery" class="nav-link <?= $activeTab==='bakery'?'active':'' ?>">
+                            <i class="bi bi-shop"></i> Bakery Info
+                        </a>
+                        <hr class="sidebar-divider">
+                        <a href="?tab=tiers" class="nav-link <?= $activeTab==='tiers'?'active':'' ?>">
+                            <i class="bi bi-gem"></i> Membership Tiers
+                        </a>
+                    </nav>
+                </aside>
+
+                <!-- CONTENT AREA -->
+                <div class="settings-content">
+
+                    <!-- TAB 1: BAKERY INFO -->
+                    <?php if ($activeTab === 'bakery'): ?>
+                    <div class="section-card">
+                        <div class="section-header">
+                            <div class="section-title">Shop Details & Business Hours</div>
+                            <div class="section-desc">Manage store profile, contact details, address, and operating schedule.</div>
+                        </div>
+
+                        <form method="POST" class="edit-form" enctype="multipart/form-data">
+                            <input type="hidden" name="update_bakery" value="1">
+                            <input type="hidden" name="existing_shop_image" value="<?= htmlspecialchars($bakery['SHOP_IMAGE'] ?? '') ?>">
+
+                            <!-- Shop Image Upload Container -->
+                            <div class="full">
+                                <label>Shop Banner / Image</label>
+                                <div class="image-upload-wrapper">
+                                    <?php if (!empty($bakery['SHOP_IMAGE'])): ?>
+                                        <img src="<?= htmlspecialchars($bakery['SHOP_IMAGE']) ?>" class="image-preview-thumb" alt="Shop Image">
+                                    <?php else: ?>
+                                        <div class="image-preview-thumb" style="display:flex;align-items:center;justify-content:center;background:#fff;color:var(--text-light)">
+                                            <i class="bi bi-image" style="font-size:24px"></i>
                                         </div>
-                                    </td>
-                                </tr>
-                                <?php endwhile; ?>
-                            <?php else: ?>
-                                <tr><td colspan="6"><i class="bi bi-geo-alt"></i>No delivery coverage areas configured yet.</div></td></tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                    <?php endif; ?>
+                                    <div class="image-upload-controls">
+                                        <input type="file" name="shop_image" accept="image/*" class="<?= hasError('shop_image') ? 'input-error' : '' ?>">
+                                        <small style="color:var(--text-muted);font-size:12px;margin-top:6px;display:block">Accepted formats: JPG, PNG, WEBP. Max 2MB. Leave blank to retain current image.</small>
+                                        <?php if (hasError('shop_image')): ?><div class="field-error"><?= getError('shop_image') ?></div><?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
 
-                <!-- Coverage Modal -->
-                <div class="modal-overlay" id="coverageModal">
-                    <div class="modal-box">
-                        <div class="modal-header">
-                            <div class="modal-title" id="coverageModalTitle">Add Delivery Coverage</div>
-                            <button class="modal-close" onclick="closeCoverageModal()">&times;</button>
-                        </div>
-                        <form method="POST">
-                            <input type="hidden" name="save_coverage" value="1">
-                            <input type="hidden" name="coverage_id" id="modal_coverage_id" value="">
-                            <div class="modal-form-grid">
-                                <div>
-                                    <label class="modal-label">Postcode</label>
-                                    <input class="<?= modalFieldClass('cov_postcode') ?>" name="postcode" id="modal_postcode" placeholder="e.g. 15000" required pattern="[0-9]{5}" maxlength="5">
-                                    <?php if (hasError('cov_postcode')): ?><div class="field-error"><?= getError('cov_postcode') ?></div><?php endif; ?>
-                                </div>
-                                <div>
-                                    <label class="modal-label">Delivery Fee (RM)</label>
-                                    <input class="<?= modalFieldClass('cov_fee') ?>" type="number" name="fee" id="modal_fee" step="0.01" min="0" placeholder="0.00" required>
-                                    <?php if (hasError('cov_fee')): ?><div class="field-error"><?= getError('cov_fee') ?></div><?php endif; ?>
-                                </div>
-                                <div>
-                                    <label class="modal-label">City</label>
-                                    <input class="<?= modalFieldClass('cov_city') ?>" name="city" id="modal_city" placeholder="e.g. Kota Bharu" required maxlength="100">
-                                    <?php if (hasError('cov_city')): ?><div class="field-error"><?= getError('cov_city') ?></div><?php endif; ?>
-                                </div>
-                                <div>
-                                    <label class="modal-label">State</label>
-                                    <input class="<?= modalFieldClass('cov_state') ?>" name="state" id="modal_state" placeholder="e.g. Kelantan" required maxlength="100">
-                                    <?php if (hasError('cov_state')): ?><div class="field-error"><?= getError('cov_state') ?></div><?php endif; ?>
-                                </div>
+                            <!-- Shop Name -->
+                            <div>
+                                <label>Shop Name <span style="color:#ef4444">*</span></label>
+                                <input name="shop_name" class="<?= fieldClass('shop_name') ?>" value="<?= htmlspecialchars($_POST['shop_name'] ?? $bakery['SHOP_NAME'] ?? '') ?>" placeholder="Your shop name" required maxlength="100">
+                                <?php if (hasError('shop_name')): ?><div class="field-error"><?= getError('shop_name') ?></div><?php endif; ?>
                             </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn-cancel" onclick="closeCoverageModal()">Cancel</button>
-                                <button type="submit" class="btn-confirm">Save Coverage</button>
+
+                            <!-- Phone -->
+                            <div>
+                                <label>Phone Number <span style="color:#ef4444">*</span></label>
+                                <input name="phone" class="<?= fieldClass('phone') ?>" value="<?= htmlspecialchars($_POST['phone'] ?? $bakery['PHONE'] ?? '') ?>" placeholder="e.g. 011-12345678" maxlength="20" required>
+                                <?php if (hasError('phone')): ?><div class="field-error"><?= getError('phone') ?></div><?php endif; ?>
                             </div>
+
+                            <!-- Email -->
+                            <div>
+                                <label>Email Address <span style="color:#ef4444">*</span></label>
+                                <input type="email" name="email" class="<?= fieldClass('email') ?>" value="<?= htmlspecialchars($_POST['email'] ?? $bakery['EMAIL'] ?? '') ?>" placeholder="contact@bakery.com" maxlength="255" required>
+                                <?php if (hasError('email')): ?><div class="field-error"><?= getError('email') ?></div><?php endif; ?>
+                            </div>
+
+                            <!-- Postcode -->
+                            <div>
+                                <label>Postcode <span style="color:#ef4444">*</span></label>
+                                <input name="postcode" class="<?= fieldClass('postcode') ?>" value="<?= htmlspecialchars($_POST['postcode'] ?? $bakery['POSTCODE'] ?? '') ?>" placeholder="e.g. 81000" maxlength="5" pattern="[0-9]{5}" title="5-digit postcode" required>
+                                <?php if (hasError('postcode')): ?><div class="field-error"><?= getError('postcode') ?></div><?php endif; ?>
+                            </div>
+
+                            <!-- Address -->
+                            <div class="full">
+                                <label>Street Address <span style="color:#ef4444">*</span></label>
+                                <textarea name="address" class="<?= hasError('address') ? 'input-error' : '' ?>" placeholder="Full street address..." required><?= htmlspecialchars($_POST['address'] ?? $bakery['ADDRESS'] ?? '') ?></textarea>
+                                <?php if (hasError('address')): ?><div class="field-error"><?= getError('address') ?></div><?php endif; ?>
+                            </div>
+
+                            <!-- City -->
+                            <div>
+                                <label>City <span style="color:#ef4444">*</span></label>
+                                <input name="city" class="<?= fieldClass('city') ?>" value="<?= htmlspecialchars($_POST['city'] ?? $bakery['CITY'] ?? '') ?>" placeholder="e.g. Kulai" required>
+                                <?php if (hasError('city')): ?><div class="field-error"><?= getError('city') ?></div><?php endif; ?>
+                            </div>
+
+                            <!-- State -->
+                            <div>
+                                <label>State <span style="color:#ef4444">*</span></label>
+                                <input name="state" class="<?= fieldClass('state') ?>" value="<?= htmlspecialchars($_POST['state'] ?? $bakery['STATE'] ?? '') ?>" placeholder="e.g. Johor" required>
+                                <?php if (hasError('state')): ?><div class="field-error"><?= getError('state') ?></div><?php endif; ?>
+                            </div>
+
+                            <!-- Bakery Description -->
+                            <div class="full">
+                                <label>Bakery Description <span style="color:#ef4444">*</span></label>
+                                <textarea name="bakery_des" class="<?= hasError('bakery_des') ? 'input-error' : '' ?>" placeholder="Short introduction for your bakery..." maxlength="300" required><?= htmlspecialchars($_POST['bakery_des'] ?? $bakery['BAKERY_DES'] ?? '') ?></textarea>
+                                <small style="color:var(--text-muted);font-size:12px;margin-top:4px;display:block;text-align:right">Maximum 300 characters</small>
+                                <?php if (hasError('bakery_des')): ?><div class="field-error"><?= getError('bakery_des') ?></div><?php endif; ?>
+                            </div>
+
+                            <!-- Open Time -->
+                            <div>
+                                <label>Opening Time <span style="color:#ef4444">*</span></label>
+                                <input type="time" name="open_time" class="<?= fieldClass('open_time') ?>" value="<?= htmlspecialchars($_POST['open_time'] ?? $bakery['OPEN_TIME'] ?? '') ?>" required>
+                                <?php if (hasError('open_time')): ?><div class="field-error"><?= getError('open_time') ?></div><?php endif; ?>
+                            </div>
+
+                            <!-- Close Time -->
+                            <div>
+                                <label>Closing Time <span style="color:#ef4444">*</span></label>
+                                <input type="time" name="close_time" class="<?= fieldClass('close_time') ?>" value="<?= htmlspecialchars($_POST['close_time'] ?? $bakery['CLOSE_TIME'] ?? '') ?>" required>
+                                <?php if (hasError('close_time')): ?><div class="field-error"><?= getError('close_time') ?></div><?php endif; ?>
+                            </div>
+
+                            <!-- Open Days -->
+                            <div class="full">
+                                <label>Operating Days <span style="color:#ef4444">*</span></label>
+                                <?php
+                                    $savedDays = explode(',', $_POST['open_days_raw'] ?? $bakery['OPEN_DAYS'] ?? '');
+                                    if (!empty($_POST['open_days']) && is_array($_POST['open_days'])) {
+                                        $savedDays = $_POST['open_days'];
+                                    }
+                                    $dayOptions = [
+                                       'Mon' => 'Monday', 'Tue' => 'Tuesday', 'Wed' => 'Wednesday',
+                                       'Thu' => 'Thursday', 'Fri' => 'Friday', 'Sat' => 'Saturday', 'Sun' => 'Sunday'
+                                    ];
+                                ?>
+                                <div class="days-grid">
+                                    <?php foreach ($dayOptions as $val => $label): ?>
+                                        <label class="day-checkbox-pill">
+                                            <input type="checkbox" name="open_days[]" value="<?= $val ?>" <?= in_array($val, $savedDays) ? 'checked' : '' ?>>
+                                            <span><?= $label ?></span>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </div>
+                                <?php if (hasError('open_days')): ?><div class="field-error" style="margin-top:8px"><?= getError('open_days') ?></div><?php endif; ?>
+                            </div>
+
+                            <button type="submit" class="btn-save">
+                                <i class="bi bi-check-circle-fill"></i> Save Bakery Settings
+                            </button>
                         </form>
                     </div>
-                </div>
 
-                <!-- DELIVERY RULES -->
-                <?php elseif ($activeTab === 'rules'): ?>
-                <div class="page-header">
-                    <h1 class="page-title">Delivery Date Rules</h1>
-                    <p class="page-subtitle">Block specific dates or recurring days of the week from delivery.</p>
-                </div>
-                <div class="section-card">
-                    <div class="section-header">
-                        <div class="section-title" id="ruleFormTitle">Add New Rule</div>
-                        <div class="section-desc">Customers cannot select these dates for delivery, and admins are not allowed to set production capacity on them.</div>
-                    </div>
-                    <form method="POST" class="rule-form-wrapper" id="ruleForm">
-                        <input type="hidden" name="save_rule" value="1">
-                        <input type="hidden" name="rule_id" id="rule_id" value="">
-                        <input type="hidden" name="rule_mode" id="rule_mode" value="date">
-
-                        <div class="rule-mode-tabs">
-                            <button type="button" class="rule-mode-tab active" id="tab_date" onclick="switchRuleMode('date')">Specific Date</button>
-                            <button type="button" class="rule-mode-tab" id="tab_day" onclick="switchRuleMode('day')">Recurring Day</button>
+                    <!-- TAB 2: MEMBERSHIP TIERS -->
+                    <?php elseif ($activeTab === 'tiers'): ?>
+                    <div class="section-card">
+                        <div class="section-header">
+                            <div class="section-title" id="tierFormTitle">Add New Membership Tier</div>
+                            <div class="section-desc">Define customer spending tiers and minimum qualifying thresholds.</div>
                         </div>
 
-                        <div class="rule-fields">
-                            <div class="fg" id="field_date">
-                                <label>Date</label>
-                                <input type="date" name="date" id="input_date" class="<?= hasError('rule_date') ? 'form-input input-error' : 'form-input' ?>" value="<?= htmlspecialchars($_POST['date'] ?? '') ?>">
-                                <?php if (hasError('rule_date')): ?><div class="field-error"><?= getError('rule_date') ?></div><?php endif; ?>
+                        <!-- Add/Edit Inline Form -->
+                        <form method="POST" class="form-row" id="tierForm">
+                            <input type="hidden" name="save_tier" value="1">
+                            <input type="hidden" name="tier_id" id="tier_id" value="">
+
+                            <div class="form-group">
+                                <label class="form-label">Tier Name <span style="color:#ef4444">*</span></label>
+                                <input type="text" class="<?= fieldClass('tier_name') ?>" name="tier_name" id="tier_name" placeholder="e.g. Gold" maxlength="50" value="<?= htmlspecialchars($_POST['tier_name'] ?? '') ?>" required>
+                                <?php if (hasError('tier_name')): ?><div class="field-error"><?= getError('tier_name') ?></div><?php endif; ?>
                             </div>
-                            <div class="fg" id="field_day" style="display:none">
-                                <label>Day of Week</label>
-                                <select name="day_of_week" id="input_day" class="<?= hasError('rule_day') ? 'form-input input-error' : 'form-input' ?>">
-                                    <option value="">-- Select Day --</option>
-                                    <option value="1">Monday</option>
-                                    <option value="2">Tuesday</option>
-                                    <option value="3">Wednesday</option>
-                                    <option value="4">Thursday</option>
-                                    <option value="5">Friday</option>
-                                    <option value="6">Saturday</option>
-                                    <option value="7">Sunday</option>
-                                </select>
-                                <?php if (hasError('rule_day')): ?><div class="field-error"><?= getError('rule_day') ?></div><?php endif; ?>
+
+                            <div class="form-group narrow">
+                                <label class="form-label">Minimum Spent (RM) <span style="color:#ef4444">*</span></label>
+                                <input type="number" class="<?= fieldClass('min_spent') ?>" name="min_spent" id="min_spent" min="0" step="0.01" placeholder="0.00" value="<?= htmlspecialchars($_POST['min_spent'] ?? '') ?>" required>
+                                <?php if (hasError('min_spent')): ?><div class="field-error"><?= getError('min_spent') ?></div><?php endif; ?>
                             </div>
-                            <div class="fg" style="flex:2">
-                                <label>Reason (optional)</label>
-                                <input type="text" name="reason" id="input_reason" value="<?= htmlspecialchars($_POST['reason'] ?? '') ?>" placeholder="e.g. Public holiday, No delivery on Sundays...">
-                            </div>
+
                             <div style="display:flex;gap:8px;align-items:flex-end">
-                                <button type="submit" class="btn-add" style="margin-bottom:0">
+                                <button type="submit" class="btn-add">
                                     <i class="bi bi-plus-lg"></i>
-                                    <span id="ruleBtnLabel" style="color:white;">Add</span>
+                                    <span id="tierBtnLabel">Add Tier</span>
                                 </button>
-                                <button type="button" class="btn-cancel" id="ruleCancelBtn" onclick="resetRuleForm()" style="display:none">Cancel</button>
+                                <button type="button" class="btn-cancel" id="tierCancelBtn" onclick="resetTierForm()" style="display:none">Cancel</button>
                             </div>
+                        </form>
+
+                        <!-- Tiers Table -->
+                        <div class="mgmt-tbl">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Tier Name</th>
+                                        <th>Minimum Spent</th>
+                                        <th>Status</th>
+                                        <th style="text-align:right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if (!empty($tiers)): ?>
+                                        <?php foreach ($tiers as $row): ?>
+                                        <tr>
+                                            <td><span class="cell-name"><?= htmlspecialchars($row['TIER_NAME']) ?></span></td>
+                                            <td><span class="cell-amount">RM <?= number_format($row['MIN_SPENT'], 2) ?></span></td>
+                                            <td>
+                                                <span class="badge badge-<?= strtolower($row['STATUS']) ?>">
+                                                    <?= htmlspecialchars($row['STATUS']) ?>
+                                                </span>
+                                            </td>
+                                            <td style="text-align:right">
+                                                <div class="action-group" style="justify-content:flex-end">
+                                                    <button class="btn-edit" onclick="editTier(<?= (int)$row['TIER_ID'] ?>, '<?= addslashes($row['TIER_NAME']) ?>', '<?= $row['MIN_SPENT'] ?>', <?= $row['IS_DEFAULT'] ?>)">
+                                                        <i class="bi bi-pencil-square"></i> Edit
+                                                    </button>
+                                                    <?php if ($row['IS_DEFAULT']): ?>
+                                                        <span class="btn-toggle" style="opacity:0.4;cursor:not-allowed;" title="Default tier status cannot be modified">
+                                                            <i class="bi bi-dash-circle"></i> Locked
+                                                        </span>
+                                                    <?php else: ?>
+                                                        <a class="btn-toggle" href="?toggle_type=tier&id=<?= (int)$row['TIER_ID'] ?>">
+                                                            <i class="bi bi-arrow-repeat"></i> Toggle
+                                                        </a>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <tr>
+                                            <td colspan="4" class="empty-state">
+                                                <i class="bi bi-gem"></i> No membership tiers configured yet.
+                                            </td>
+                                        </tr>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
                         </div>
-                    </form>
-
-                    <table class="data-table">
-                        <thead>
-                            <tr><th>Type</th><th>Date / Day</th><th>Reason</th><th>Status</th><th>Actions</th></tr>
-                        </thead>
-                        <tbody>
-                            <?php if ($rules && $rules->num_rows > 0): ?>
-                                <?php while($row = $rules->fetch_assoc()): ?>
-                                <?php $isDateRule=!empty($row['DATE']); $isDayRule=!empty($row['DAY_OF_WEEK']); ?>
-                                <tr>
-                                    <td>
-                                        <?php if ($isDateRule): ?><span class="badge badge-date">Specific Date</span>
-                                        <?php elseif ($isDayRule): ?><span class="badge badge-recurring">Recurring</span>
-                                        <?php else: ?><span>-</span><?php endif; ?>
-                                    </td>
-                                    <td class="cell-name">
-                                        <?php if ($isDateRule): ?>
-                                            <?= date('d M Y', strtotime($row['DATE'])) ?>
-                                            <br><small style="color:#6b7280;font-weight:400"><?= date('l', strtotime($row['DATE'])) ?></small>
-                                        <?php elseif ($isDayRule): ?>
-                                            Every <?= getDayName($row['DAY_OF_WEEK']) ?>
-                                        <?php else: ?>-<?php endif; ?>
-                                    </td>
-                                    <td><?= htmlspecialchars($row['REASON'] ?? '-') ?></td>
-                                    <td><span class="badge badge-<?= strtolower($row['STATUS']) ?>"><?= htmlspecialchars($row['STATUS']) ?></span></td>
-                                    <td>
-                                        <div class="action-group">
-                                            <button class="btn-edit" onclick="editRule(
-                                                <?= (int)$row['RULE_ID'] ?>,
-                                                '<?= $isDateRule ? 'date' : 'day' ?>',
-                                                '<?= addslashes($row['DATE'] ?? '') ?>',
-                                                <?= (int)($row['DAY_OF_WEEK'] ?? 0) ?>,
-                                                '<?= addslashes($row['REASON'] ?? '') ?>'
-                                            )">Edit</button>
-                                            <a class="btn-toggle" href="?toggle_type=rule&id=<?= (int)$row['RULE_ID'] ?>">Toggle</a>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <?php endwhile; ?>
-                            <?php else: ?>
-                                <tr><i class="bi bi-geo-alt"></i>No delivery rules configured yet.</div></td></tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- DELIVERY SLOTS -->
-                <?php elseif ($activeTab === 'slots'): ?>
-                <div class="page-header">
-                    <h1 class="page-title">Delivery Slots</h1>
-                    <p class="page-subtitle">Manage available delivery time slots.</p>
-                </div>
-                <div class="section-card">
-                    <div class="section-header">
-                        <div class="section-title" id="slotFormTitle">Add New Slot</div>
-                        <div class="section-desc">New slots are active by default. Customers can only select these slots for delivery.</div>
                     </div>
-                    <form method="POST" class="slot-form-row" id="slotForm">
-                        <input type="hidden" name="save_slot" value="1">
-                        <input type="hidden" name="slot_id" id="slot_id" value="">
-                        <div class="fg">
-                            <label>Start Time</label>
-                            <input type="time" name="start" id="slot_start" class="<?= hasError('slot_start') ? 'input-error' : '' ?>" style="width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box" value="<?= htmlspecialchars($_POST['start'] ?? '') ?>" required>
-                            <?php if (hasError('slot_start')): ?><div class="field-error"><?= getError('slot_start') ?></div><?php endif; ?>
-                        </div>
-                        <div class="fg">
-                            <label>End Time</label>
-                            <input type="time" name="end" id="slot_end" class="<?= hasError('slot_end') ? 'input-error' : '' ?>" style="width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box" value="<?= htmlspecialchars($_POST['end'] ?? '') ?>" required>
-                            <?php if (hasError('slot_end')): ?><div class="field-error"><?= getError('slot_end') ?></div><?php endif; ?>
-                        </div>
-                        <div style="display:flex;gap:8px;align-items:flex-end">
-                            <button type="submit" class="btn-add" style="margin-bottom:0">
-                                <i class="bi bi-plus-lg"></i>
-                                <span id="slotBtnLabel" style="color:white;">Add Slot</span>
-                            </button>
-                            <button type="button" class="btn-cancel" id="slotCancelBtn" onclick="resetSlotForm()" style="display:none">Cancel</button>
-                        </div>
-                    </form>
-                    <table class="data-table">
-                        <thead>
-                            <tr><th>Start Time</th><th>End Time</th><th>Status</th><th>Actions</th></tr>
-                        </thead>
-                        <tbody>
-                            <?php if ($slots && $slots->num_rows > 0): ?>
-                                <?php while($row = $slots->fetch_assoc()): ?>
-                                <tr>
-                                    <td class="cell-name"><?= date("h:i A", strtotime($row['START_TIME'])) ?></td>
-                                    <td><?= date("h:i A", strtotime($row['END_TIME'])) ?></td>
-                                    <td><span class="badge badge-<?= strtolower($row['STATUS']) ?>"><?= htmlspecialchars($row['STATUS']) ?></span></td>
-                                    <td>
-                                        <div class="action-group">
-                                            <button class="btn-edit" onclick="editSlot(<?= (int)$row['SLOT_ID'] ?>,'<?= substr($row['START_TIME'],0,5) ?>','<?= substr($row['END_TIME'],0,5) ?>')">Edit</button>
-                                            <a class="btn-toggle" href="?toggle_type=slot&id=<?= (int)$row['SLOT_ID'] ?>">Toggle</a>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <?php endwhile; ?>
-                            <?php else: ?>
-                                <tr><i class="bi bi-geo-alt"></i>No delivery slots added yet.</div></td></tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+                    <?php endif; ?>
 
-                <!-- MEMBERSHIP TIERS -->
-                <?php elseif ($activeTab === 'tiers'): ?>
-                <div class="page-header">
-                    <h1 class="page-title">Membership Tiers</h1>
-                    <p class="page-subtitle">Define spending thresholds for membership tiers.</p>
                 </div>
-                <div class="section-card">
-                    <div class="section-header">
-                        <div class="section-title" id="tierFormTitle">Add New Tier</div>
-                        <div class="section-desc">New tiers are active by default. Customers must meet the minimum spending requirement to qualify for each tier.</div>
-                    </div>
-                    <form method="POST" class="form-row" id="tierForm">
-                        <input type="hidden" name="save_tier" value="1">
-                        <input type="hidden" name="tier_id" id="tier_id" value="">
-                        <div class="form-group">
-                            <label class="form-label">Tier Name</label>
-                            <input type="text" class="<?= fieldClass('tier_name') ?>" name="tier_name" id="tier_name" placeholder="e.g. Gold" maxlength="50" value="<?= htmlspecialchars($_POST['tier_name'] ?? '') ?>" required>
-                            <?php if (hasError('tier_name')): ?><div class="field-error"><?= getError('tier_name') ?></div><?php endif; ?>
-                        </div>
-                        <div class="form-group narrow">
-                            <label class="form-label">Minimum Spent (RM)</label>
-                            <input type="number" class="<?= fieldClass('min_spent') ?>" name="min_spent" id="min_spent" min="0" step="0.01" placeholder="0.00" value="<?= htmlspecialchars($_POST['min_spent'] ?? '') ?>" required>
-                            <?php if (hasError('min_spent')): ?><div class="field-error"><?= getError('min_spent') ?></div><?php endif; ?>
-                        </div>
-                        <div style="display:flex;gap:8px;align-items:flex-end">
-                            <button type="submit" class="btn-add">
-                                <i class="bi bi-plus-lg"></i>
-                                <span id="tierBtnLabel" style="color:white">Add Tier</span>
-                            </button>
-                            <button type="button" class="btn-cancel" id="tierCancelBtn" onclick="resetTierForm()" style="display:none">Cancel</button>
-                        </div>
-                    </form>
-                    <table class="data-table">
-                        <thead>
-                            <tr><th>Tier Name</th><th>Minimum Spent</th><th>Status</th><th>Actions</th></tr>
-                        </thead>
-                        <tbody>
-                            <?php if ($tiers && $tiers->num_rows > 0): ?>
-                                <?php while($row = $tiers->fetch_assoc()): ?>
-                                <tr>
-                                    <td><span class="cell-name"><?= htmlspecialchars($row['TIER_NAME']) ?></span></td>
-                                    <td><span class="cell-amount">RM <?= number_format($row['MIN_SPENT'],2) ?></span></td>
-                                    <td><span class="badge badge-<?= strtolower($row['STATUS']) ?>"><?= htmlspecialchars($row['STATUS']) ?></span></td>
-                                    <td>
-                                        <div class="action-group">
-                                            <button class="btn-edit" onclick="editTier(<?= (int)$row['TIER_ID'] ?>,'<?= addslashes($row['TIER_NAME']) ?>','<?= $row['MIN_SPENT'] ?>',<?= $row['IS_DEFAULT'] ?>)">Edit</button>
-                                            <?php if ($row['IS_DEFAULT']): ?>
-                                                <span class="btn-toggle" style="opacity:0.4;cursor:not-allowed;" title="Default tier cannot be toggled">Toggle</span>
-                                            <?php else: ?>
-                                                <a class="btn-toggle" href="?toggle_type=tier&id=<?= (int)$row['TIER_ID'] ?>">Toggle</a>
-                                            <?php endif; ?>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <?php endwhile; ?>
-                            <?php else: ?>
-                                <tr><td colspan="4"><i class="bi bi-geo-alt"></i>No membership tiers added yet.</div></td></tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- CAKE STYLES -->
-                <?php elseif ($activeTab === 'styles'): ?>
-                <div class="page-header">
-                    <h1 class="page-title">Cake Styles</h1>
-                    <p class="page-subtitle">Manage cake style options shown to customers.</p>
-                </div>
-                <div class="section-card">
-                    <div class="section-header">
-                        <div class="section-title" id="styleFormTitle">Add New Style</div>
-                        <div class="section-desc">Styles are active by default. This information will be used in the cake customization form.</div>
-                    </div>
-                    <form method="POST" class="form-row" id="styleForm">
-                        <input type="hidden" name="save_style" value="1">
-                        <input type="hidden" name="style_id" id="style_id" value="">
-                        <div class="form-group">
-                            <label class="form-label">Style Name</label>
-                            <input type="text" class="<?= fieldClass('style_name') ?>" name="style_name" id="style_name" placeholder="e.g. Minimalist" maxlength="100" value="<?= htmlspecialchars($_POST['style_name'] ?? '') ?>" required>
-                            <?php if (hasError('style_name')): ?><div class="field-error"><?= getError('style_name') ?></div><?php endif; ?>
-                        </div>
-                        <div style="display:flex;gap:8px;align-items:flex-end">
-                            <button type="submit" class="btn-add">
-                                <i class="bi bi-plus-lg"></i>
-                                <span id="styleBtnLabel" style="color:white">Add Style</span>
-                            </button>
-                            <button type="button" class="btn-cancel" id="styleCancelBtn" onclick="resetStyleForm()" style="display:none">Cancel</button>
-                        </div>
-                    </form>
-                    <table class="data-table">
-                        <thead>
-                            <tr><th>Style Name</th><th>Status</th><th>Actions</th></tr>
-                        </thead>
-                        <tbody>
-                            <?php if ($styles && $styles->num_rows > 0): ?>
-                                <?php while($row = $styles->fetch_assoc()): ?>
-                                <tr>
-                                    <td><span class="cell-name"><?= htmlspecialchars($row['STYLE_NAME']) ?></span></td>
-                                    <td><span class="badge badge-<?= strtolower($row['STATUS']) ?>"><?= htmlspecialchars($row['STATUS']) ?></span></td>
-                                    <td>
-                                        <div class="action-group">
-                                            <button class="btn-edit" onclick="editStyle(<?= (int)$row['STYLE_ID'] ?>,'<?= addslashes($row['STYLE_NAME']) ?>')">Edit</button>
-                                            <a class="btn-toggle" href="?toggle_type=style&id=<?= (int)$row['STYLE_ID'] ?>">Toggle</a>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <?php endwhile; ?>
-                            <?php else: ?>
-                                <tr><td colspan="3"><i class="bi bi-geo-alt"></i>No cake styles added yet.</div></td></tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <?php endif; ?>
-
             </div>
+
         </div>
     </div>
 </div>
 
 <script>
-// Show toast
+// Toast Notification
 function showToast(type, message) {
     document.querySelectorAll('.toast').forEach(t => t.remove());
     const toast = document.createElement('div');
     toast.className = 'toast ' + type;
+    
+    const icon = document.createElement('i');
+    icon.className = type === 'success' ? 'bi bi-check-circle-fill' : 'bi bi-exclamation-triangle-fill';
+    
     const text = document.createElement('span');
     text.innerText = message;
+    
     const closeBtn = document.createElement('span');
     closeBtn.innerHTML = '&times;';
     closeBtn.className = 'toast-close-btn';
+    
+    toast.appendChild(icon);
     toast.appendChild(text);
     toast.appendChild(closeBtn);
     document.body.appendChild(toast);
+    
     let removed = false;
     function removeToast() {
-        if (removed) return; removed = true;
-        toast.style.opacity = '0'; toast.style.transform = 'translateX(100%)';
+        if (removed) return; 
+        removed = true;
+        toast.style.opacity = '0'; 
+        toast.style.transform = 'translateY(-10px)';
         setTimeout(() => toast.remove(), 300);
     }
+    
     closeBtn.addEventListener('click', e => { e.stopPropagation(); removeToast(); });
     toast.addEventListener('click', removeToast);
-    setTimeout(removeToast, type === 'error' ? 8000 : 3000);
+    setTimeout(removeToast, type === 'error' ? 8000 : 3500);
 }
 
-<?php if ($success): ?>showToast('success', 'Changes saved successfully');<?php endif; ?>
-<?php if (!empty($errors)): ?>showToast('error', 'Please fix the errors');<?php endif; ?>
+<?php if ($success): ?>showToast('success', 'Settings updated successfully.');<?php endif; ?>
+<?php if (!empty($errors)): ?>showToast('error', 'Please resolve the highlighted validation errors.');<?php endif; ?>
 <?php if (isset($_GET['error']) && $_GET['error'] === 'default_toggle'): ?>
-showToast('error', 'Default tier cannot be deactivated.');
+showToast('error', 'Default tier status cannot be deactivated.');
 <?php endif; ?>
 
-// Prevent past dates in rule form
-const inputDate = document.getElementById('input_date');
-if (inputDate) {
-    const today = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    inputDate.min = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
-}
-
-// RULE MODE SWITCHER
-function switchRuleMode(mode) {
-    document.getElementById('rule_mode').value = mode;
-    const tabDate = document.getElementById('tab_date');
-    const tabDay  = document.getElementById('tab_day');
-    const fieldDate = document.getElementById('field_date');
-    const fieldDay  = document.getElementById('field_day');
-    const inputDate = document.getElementById('input_date');
-    const inputDay  = document.getElementById('input_day');
-    if (mode === 'date') {
-        tabDate.classList.add('active'); tabDay.classList.remove('active');
-        fieldDate.style.display = ''; fieldDay.style.display = 'none';
-        inputDate.required = true; inputDay.required = false; inputDay.value = '';
-    } else {
-        tabDay.classList.add('active'); tabDate.classList.remove('active');
-        fieldDay.style.display = ''; fieldDate.style.display = 'none';
-        inputDay.required = true; inputDate.required = false; inputDate.value = '';
-    }
-}
-
-// EDIT RULE (inline form)
-function editRule(id, mode, date, dayOfWeek, reason) {
-    document.getElementById('rule_id').value     = id;
-    document.getElementById('input_reason').value = reason;
-    document.getElementById('ruleFormTitle').textContent = 'Edit Rule';
-    document.getElementById('ruleBtnLabel').textContent  = 'Update';
-    document.getElementById('ruleCancelBtn').style.display = '';
-    switchRuleMode(mode);
-    if (mode === 'date') {
-        document.getElementById('input_date').value = date;
-    } else {
-        document.getElementById('input_day').value = dayOfWeek;
-    }
-    document.getElementById('ruleForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-function resetRuleForm() {
-    document.getElementById('rule_id').value = '';
-    document.getElementById('input_date').value = '';
-    document.getElementById('input_day').value = '';
-    document.getElementById('input_reason').value = '';
-    document.getElementById('ruleFormTitle').textContent = 'Add New Rule';
-    document.getElementById('ruleBtnLabel').textContent  = 'Add';
-    document.getElementById('ruleCancelBtn').style.display = 'none';
-    switchRuleMode('date');
-}
-
-<?php if (!empty($errors) && $activeTab === 'rules'): ?>
-window.addEventListener('DOMContentLoaded', function() {
-    switchRuleMode('<?= htmlspecialchars($_POST['rule_mode'] ?? 'date') ?>');
-});
-<?php endif; ?>
-
-//  EDIT SLOT (inline form)
-function editSlot(id, start, end) {
-    document.getElementById('slot_id').value    = id;
-    document.getElementById('slot_start').value = start;
-    document.getElementById('slot_end').value   = end;
-    document.getElementById('slotFormTitle').textContent  = 'Edit Slot';
-    document.getElementById('slotBtnLabel').textContent   = 'Update';
-    document.getElementById('slotCancelBtn').style.display = '';
-    document.getElementById('slotForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-function resetSlotForm() {
-    document.getElementById('slot_id').value    = '';
-    document.getElementById('slot_start').value = '';
-    document.getElementById('slot_end').value   = '';
-    document.getElementById('slotFormTitle').textContent   = 'Add New Slot';
-    document.getElementById('slotBtnLabel').textContent    = 'Add Slot';
-    document.getElementById('slotCancelBtn').style.display = 'none';
-}
-
-// EDIT TIER (inline form)
+// Edit Tier Inline Form Handler
 function editTier(id, name, minSpent, isDefault) {
     document.getElementById('tier_id').value   = id;
     document.getElementById('tier_name').value = name;
     document.getElementById('min_spent').value = minSpent;
 
-    // Lock min_spent for default tier
     const minSpentInput = document.getElementById('min_spent');
     if (isDefault == 1) {
         minSpentInput.readOnly = true;
-        minSpentInput.style.background = '#f3f4f6';
+        minSpentInput.style.background = 'var(--bg-page)';
         minSpentInput.style.cursor = 'not-allowed';
     } else {
         minSpentInput.readOnly = false;
-        minSpentInput.style.background = '';
+        minSpentInput.style.background = '#ffffff';
         minSpentInput.style.cursor = '';
     }
 
-    document.getElementById('tierFormTitle').textContent  = 'Edit Tier';
-    document.getElementById('tierBtnLabel').textContent   = 'Update';
-    document.getElementById('tierCancelBtn').style.display = '';
-    document.getElementById('tierForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('tierFormTitle').textContent  = 'Edit Membership Tier';
+    document.getElementById('tierBtnLabel').textContent   = 'Update Tier';
+    document.getElementById('tierCancelBtn').style.display = 'inline-block';
+    document.getElementById('tierForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
+
 function resetTierForm() {
     document.getElementById('tier_id').value   = '';
     document.getElementById('tier_name').value = '';
     document.getElementById('min_spent').value = '';
+    
     const minSpentInput = document.getElementById('min_spent');
     minSpentInput.readOnly = false;
-    minSpentInput.style.background = '';
+    minSpentInput.style.background = '#ffffff';
     minSpentInput.style.cursor = '';
-    document.getElementById('tierFormTitle').textContent   = 'Add New Tier';
+    
+    document.getElementById('tierFormTitle').textContent   = 'Add New Membership Tier';
     document.getElementById('tierBtnLabel').textContent    = 'Add Tier';
     document.getElementById('tierCancelBtn').style.display = 'none';
 }
-
-// EDIT STYLE (inline form)
-function editStyle(id, name) {
-    document.getElementById('style_id').value   = id;
-    document.getElementById('style_name').value = name;
-    document.getElementById('styleFormTitle').textContent  = 'Edit Style';
-    document.getElementById('styleBtnLabel').textContent   = 'Update';
-    document.getElementById('styleCancelBtn').style.display = '';
-    document.getElementById('styleForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-function resetStyleForm() {
-    document.getElementById('style_id').value   = '';
-    document.getElementById('style_name').value = '';
-    document.getElementById('styleFormTitle').textContent   = 'Add New Style';
-    document.getElementById('styleBtnLabel').textContent    = 'Add Style';
-    document.getElementById('styleCancelBtn').style.display = 'none';
-}
-
-// COVERAGE MODAL
-<?php if (!empty($errors) && $activeTab === 'coverage'): ?>
-window.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('coverageModal').classList.add('open');
-    <?php if (!empty($_POST['coverage_id'])): ?>
-    document.getElementById('modal_coverage_id').value = '<?= (int)$_POST['coverage_id'] ?>';
-    <?php endif; ?>
-    document.getElementById('modal_postcode').value = '<?= htmlspecialchars($_POST['postcode'] ?? '') ?>';
-    document.getElementById('modal_city').value     = '<?= htmlspecialchars($_POST['city'] ?? '') ?>';
-    document.getElementById('modal_state').value    = '<?= htmlspecialchars($_POST['state'] ?? '') ?>';
-    document.getElementById('modal_fee').value      = '<?= htmlspecialchars($_POST['fee'] ?? '') ?>';
-});
-<?php endif; ?>
-
-function openCoverageModal() {
-    document.getElementById('coverageModalTitle').textContent  = 'Add Delivery Coverage';
-    document.getElementById('modal_coverage_id').value = '';
-    document.getElementById('modal_postcode').value = '';
-    document.getElementById('modal_city').value     = '';
-    document.getElementById('modal_state').value    = '';
-    document.getElementById('modal_fee').value      = '';
-    document.getElementById('coverageModal').classList.add('open');
-}
-function editCoverage(id, postcode, city, state, fee) {
-    document.getElementById('coverageModalTitle').textContent  = 'Edit Delivery Coverage';
-    document.getElementById('modal_coverage_id').value = id;
-    document.getElementById('modal_postcode').value    = postcode;
-    document.getElementById('modal_city').value        = city;
-    document.getElementById('modal_state').value       = state;
-    document.getElementById('modal_fee').value         = fee;
-    document.getElementById('coverageModal').classList.add('open');
-}
-function closeCoverageModal() {
-    document.getElementById('coverageModal').classList.remove('open');
-}
-document.getElementById('coverageModal')?.addEventListener('click', function(e) {
-    if (e.target === this) closeCoverageModal();
-});
 </script>
-
 </body>
 </html>

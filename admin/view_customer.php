@@ -12,13 +12,18 @@ $admin_id = $_SESSION['admin_id'];
 // Get customer id
 $customerId = $_GET['customer_id'] ?? null;
 
-if (!$customerId) {
+if (!$customerId || !is_numeric($customerId)) {
     die("Invalid request");
 }
+$customerId = (int)$customerId;
 
 // Get customer info
 $stmt1 = $conn->prepare("
-    SELECT c.*, t.TIER_NAME
+    SELECT c.CUSTOMER_ID, c.CUSTOMER_NAME, c.EMAIL, c.PHONE, c.STATUS, c.PROFILE_IMAGE,
+       c.TOTAL_SPENT, c.WALLET_BALANCE, c.CREATED_AT,
+       c.TIER_WINDOW_START, c.QUARTER_SPENT, c.LAST_TIER_VOUCHER_DATE,
+       c.MILESTONE_WINDOW_START, c.MILESTONE_SPENT,
+       t.TIER_NAME
     FROM customer c
     LEFT JOIN membership_tier t ON c.TIER_ID = t.TIER_ID
     WHERE c.CUSTOMER_ID = ?
@@ -29,6 +34,55 @@ $customer = $stmt1->get_result()->fetch_assoc();
 
 if (!$customer) {
     die("Customer not found");
+}
+
+// ===== Membership cycle info =====
+$MILESTONE_TARGET = 1000; // 要和 process_payment.php 的 1000 保持一致
+
+// 等级到期日 = TIER_WINDOW_START + 3 个月
+$tierExpiryText = 'N/A';
+$tierExpiryNote = '';
+$tierExpiryColor = '#6b7280';
+if (!empty($customer['TIER_WINDOW_START'])) {
+    $exp = new DateTime($customer['TIER_WINDOW_START']);
+    $exp->modify('+3 months');
+    $daysLeft = (int)(new DateTime('today'))->diff($exp)->format('%r%a');
+    $tierExpiryText = $exp->format('d M Y');
+
+    if ($daysLeft < 0) {
+        $tierExpiryNote  = 'Pending review (customer has not logged in since expiry)';
+        $tierExpiryColor = '#dc2626';
+    } elseif ($daysLeft <= 7) {
+        $tierExpiryNote  = $daysLeft . ' day(s) left';
+        $tierExpiryColor = '#d97706';
+    } else {
+        $tierExpiryNote  = $daysLeft . ' days left';
+    }
+}
+
+// 下次月度 voucher 日期 = LAST_TIER_VOUCHER_DATE + 1 个月
+$nextVoucherText = 'N/A';
+$lastVoucherText = 'Never';
+if (!empty($customer['LAST_TIER_VOUCHER_DATE'])) {
+    $lastV = new DateTime($customer['LAST_TIER_VOUCHER_DATE']);
+    $lastVoucherText = $lastV->format('d M Y');
+    $nextV = clone $lastV;
+    $nextV->modify('+1 month');
+    $nextVoucherText = $nextV->format('d M Y');
+} else {
+    $nextVoucherText = 'On next login';
+}
+
+// Milestone（RM1000 奖励）
+$msSpent     = (float)$customer['MILESTONE_SPENT'];
+$msRemaining = max(0, $MILESTONE_TARGET - $msSpent);
+$msPercent   = min(100, ($msSpent / $MILESTONE_TARGET) * 100);
+
+$msExpiryText = 'N/A';
+if (!empty($customer['MILESTONE_WINDOW_START'])) {
+    $mExp = new DateTime($customer['MILESTONE_WINDOW_START']);
+    $mExp->modify('+3 months');
+    $msExpiryText = $mExp->format('d M Y');
 }
 
 // Get address info
@@ -58,17 +112,13 @@ $stmt4 = $conn->prepare("
         r.REVIEW_STATUS,
         o.ORDER_NO,
         o.ORDER_ID,
-
         oi.PRODUCT_NAME_SNAPSHOT
-
     FROM review r
     LEFT JOIN orders o 
         ON r.ORDER_ID = o.ORDER_ID
-
     LEFT JOIN order_item oi 
         ON oi.ORDER_ID = r.ORDER_ID 
        AND oi.PRODUCT_ID = r.PRODUCT_ID
-
     WHERE r.CUSTOMER_ID = ?
     ORDER BY r.CREATED_AT DESC
 ");
@@ -96,7 +146,7 @@ while ($row = $walletResult->fetch_assoc()) {
 $stmtV = $conn->prepare("
     SELECT cv.*, 
     cv.EXPIRY_DATE AS CUSTOMER_VOUCHER_EXPIRY,
-    v.VOUCHER_NAME, v.VOUCHER_CODE, v.DISCOUNT_RATE, v.VOUCHER_ID
+    v.VOUCHER_NAME, v.VOUCHER_CODE, v.DISCOUNT_RATE, v.DISCOUNT_TYPE, v.VOUCHER_ID
     FROM customer_voucher cv
     JOIN voucher v ON cv.VOUCHER_ID = v.VOUCHER_ID
     WHERE cv.CUSTOMER_ID = ?
@@ -120,68 +170,230 @@ function getInitials($name) {
     }
     return $initials ?: '?';
 }
+
+$tName = $customer['TIER_NAME'] ?? 'None';
+$hue = hexdec(substr(md5($tName), 0, 7)) % 360; 
+$tBg = "hsl({$hue}, 70%, 92%)";
+$tTxt = "hsl({$hue}, 70%, 25%)";
+$tBorder = "hsl({$hue}, 50%, 80%)";
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Customer Details</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <title>Customer Details | Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="admin_global.css">
     <link rel="stylesheet" href="global_view_form.css">
 <style>
-.title {
-    margin-bottom: 15px;
+:root {
+    --bg-page: #f4f5f8;
+    --card-bg: #ffffff;
+    --text-dark: #111827;
+    --text-muted: #71717a;
+    --text-light: #9ca3af;
+    --accent-lime: #d4f938;
+    --accent-lime-hover: #c4ec29;
+    --accent-lime-subtle: #f4fde6;
+    --dark-pill: #18181b;
+    --dark-pill-hover: #27272a;
+    --border-card: #edf0f3;
+    --border-subtle: #f1f3f6;
+    --shadow-soft: 0 4px 20px rgba(17, 24, 39, 0.035);
+    --shadow-hover: 0 10px 28px rgba(17, 24, 39, 0.07);
+    --radius-card: 20px;
+    --radius-pill: 9999px;
+    --font-heading: 'Plus Jakarta Sans', sans-serif;
+    --font-body: 'Inter', -apple-system, sans-serif;
 }
 
-/* CARD */
-.card {
-    background:#fff;
-    border-radius:16px;
-    padding:18px;
-    box-shadow:0 2px 10px rgba(0,0,0,0.05);
-    margin-bottom: 15px;
+body {
+    background-color: var(--bg-page);
+    font-family: var(--font-body);
+    color: var(--text-dark);
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
 }
 
-.card h3{
-    margin:0 0 15px;
-    font-size:18px;
-    font-weight:700;
-    color:#222;
+.view-wrapper {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 28px 24px 60px;
 }
 
-/* TOP GRID */
-.top-grid {
-    display: grid;
-    grid-template-columns: 260px 1fr;
+/* Back Link */
+.form-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #ffffff;
+    border: 1px solid var(--border-card);
+    padding: 8px 18px;
+    border-radius: var(--radius-pill);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dark);
+    text-decoration: none;
+    box-shadow: var(--shadow-soft);
+    transition: all 0.2s ease;
+    margin-bottom: 20px;
+}
+
+.form-back-link:hover {
+    background: var(--dark-pill);
+    color: #ffffff !important;
+    border-color: var(--dark-pill);
+    transform: translateX(-2px);
+    text-decoration: none;
+}
+
+/* Header */
+.dash-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
     gap: 16px;
-    margin-bottom: 0;
 }
 
-/* PROFILE CARD */
-.profile-center {
+.dash-title-group {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.dash-title-badge {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-pill);
+    background: var(--accent-lime);
+    color: var(--text-dark);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 800;
+    box-shadow: 0 4px 12px rgba(212, 249, 56, 0.35);
+    position: relative;
+    cursor: default;
+}
+
+.dash-title-badge .badge-arrow {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    background: var(--text-dark);
+    color: var(--accent-lime);
+    width: 18px;
+    height: 18px;
+    border-radius: var(--radius-pill);
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+}
+
+.badge-arrow i {
+    color: var(--accent-lime);
+}
+
+.dash-title {
+    font-family: var(--font-heading);
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--text-muted);
+    line-height: 1.15;
+    margin: 0;
+    letter-spacing: -0.5px;
+}
+
+.dash-title strong {
+    color: var(--text-dark);
+    font-weight: 800;
+    font-size: 26px;
+    display: block;
+}
+
+.dash-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Card */
+.view-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-soft);
+    padding: 24px;
+    margin-bottom: 20px;
+}
+
+.view-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.view-card-title {
+    font-family: var(--font-heading);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-dark);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+
+/* TOP PROFILE & PERSONAL INFO GRID */
+.top-profile-grid {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+@media (max-width: 800px) {
+    .top-profile-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.profile-card-inner {
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
-    gap: 6px;
+    gap: 8px;
 }
 
 .avatar {
-    width: 100px;
-    height: 100px;
+    width: 90px;
+    height: 90px;
     border-radius: 50%;
-    background: #dbeafe;
+    background: var(--accent-lime);
+    color: var(--text-dark);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
-    font-weight: 600;
-    color: #1d4ed8;
+    font-size: 24px;
+    font-weight: 800;
     overflow: hidden;
-    margin-top: 15px;
-    margin-bottom: 5px;
+    margin-bottom: 4px;
+    border: 3px solid #ffffff;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
 }
 
 .avatar img {
@@ -190,103 +402,155 @@ function getInitials($name) {
     object-fit: cover;
 }
 
-.customer-name {
-    font-weight: 600;
-    color: #111827;
-    margin-top: 4px;
+.customer-name-heading {
+    font-family: var(--font-heading);
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--text-dark);
+    margin: 0;
 }
 
-.customer-email {
-    font-size: 14px;
-    color: #6b7280;
-    margin-bottom: 4px;
+.customer-email-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0;
 }
 
 .badge-row {
     display: flex;
     gap: 6px;
-    margin-top: 2px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin: 4px 0 8px;
 }
 
 .profile-divider {
     width: 100%;
     height: 1px;
-    background: #f3f4f6;
+    background: var(--border-subtle);
     margin: 8px 0;
 }
 
-.profile-stats {
+.profile-stats-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
 }
 
 .stat-box {
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    padding: 10px 12px;
+    background: var(--bg-page);
+    border: 1px solid var(--border-card);
+    border-radius: 14px;
+    padding: 12px 14px;
     text-align: left;
 }
 
 .stat-label {
     font-size: 11px;
-    color: #9ca3af;
-    margin-bottom: 2px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
 }
 
 .stat-val {
-    font-size: 15px;
-    font-weight: 600;
-    color: #111827;
+    font-family: var(--font-heading);
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--text-dark);
 }
 
-.register-date {
-    font-size: 11px;
-    color: #9ca3af;
+.register-date-note {
+    font-size: 11.5px;
+    color: var(--text-muted);
     margin-top: 6px;
 }
 
-/* INFO ROWS */
-.info-row {
+/* Personal Info Grid */
+.view-grid-2col {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+@media (max-width: 600px) {
+    .view-grid-2col {
+        grid-template-columns: 1fr;
+    }
+}
+
+.view-item {
     display: flex;
-    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.view-label {
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.view-val {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-dark);
+}
+
+/* Membership Cycle Grid */
+.cycle-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
     gap: 12px;
-    padding: 8px 0;
-    border-bottom: 1px solid #f9fafb;
 }
 
-.info-row:last-child { 
-    border-bottom: none; 
+@media (max-width: 768px) {
+    .cycle-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
-.info-label {
-    font-size: 12px;
-    color: #6b7280;
-    min-width: 110px;
-    flex-shrink: 0;
-    padding-top: 1px;
+.progress-bar-wrap {
+    width: 100%;
+    height: 10px;
+    background: var(--border-card);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+    margin: 8px 0 6px;
 }
 
-.info-val {
-    font-size: 13px;
-    color: #111827;
-    flex: 1;
+.progress-fill {
+    height: 100%;
+    background: #18181b;
+    border-radius: var(--radius-pill);
+    transition: width 0.4s ease;
 }
 
-/* ADDRESS */
+/* Address Cards Grid */
 .addr-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 14px;
+}
+
+@media (max-width: 650px) {
+    .addr-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .addr-card {
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 14px;
+    background: var(--bg-page);
+    border: 1px solid var(--border-card);
+    border-radius: 14px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .addr-card.is-default {
@@ -297,143 +561,216 @@ function getInitials($name) {
 .addr-title {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-    font-size: 13px;
-    font-weight: 600;
-    color: #374151;
+    justify-content: space-between;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--text-dark);
 }
 
 .default-pill {
     background: #dcfce7;
-    color: #166534;
+    color: #15803d;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     padding: 2px 8px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
 }
 
-/* SECTION HEADER */
-.section-header {
+.info-row {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 14px;
+    gap: 8px;
+    font-size: 13px;
 }
 
-.section-title {
-    font-size: 15px;
+.info-label {
+    color: var(--text-muted);
+    min-width: 70px;
+    font-weight: 500;
+}
+
+.info-val {
+    color: var(--text-dark);
     font-weight: 600;
-    color: #111827;
 }
 
-.toggle-btn {
-    background: none;
-    border: none;
-    font-size: 12px;
-    font-weight: 600;
-    color: #2563eb;
-    cursor: pointer;
-    padding: 4px 10px;
-    border-radius: 6px;
-    transition: background .15s;
-}
-
-.toggle-btn:hover { 
-    background: #eff6ff; 
-}
-
-/* TABLE  */
+/* Tables inside cards */
 .table-wrap {
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
+    border: 1px solid var(--border-card);
+    border-radius: 14px;
     overflow: hidden;
     overflow-x: auto;
 }
 
 table {
     width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: #ffffff;
 }
 
-thead { 
-    background: #f9fafb; 
+thead {
+    background: #fafbfc;
 }
 
 th {
     font-size: 11px;
-    font-weight: 600;
-    color: #6b7280;
+    font-weight: 700;
+    color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: .5px;
-    padding: 10px 14px;
+    letter-spacing: 0.5px;
+    padding: 12px 14px;
     text-align: left;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--border-card);
     white-space: nowrap;
 }
 
 td {
-    padding: 10px 14px;
+    padding: 12px 14px;
     font-size: 13px;
-    color: #374151;
-    border-bottom: 1px solid #f3f4f6;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
+    color: var(--text-dark);
+    border-bottom: 1px solid var(--border-subtle);
+    vertical-align: middle;
 }
 
-tbody tr:last-child td { 
-    border-bottom: none; 
+tbody tr:last-child td {
+    border-bottom: none;
 }
 
-tbody tr:hover { 
-    background: #f9fafb; 
+tbody tr:hover {
+    background: #fbfcfd;
 }
 
-.empty-row td {
-    text-align: center;
-    color: #9ca3af;
-    padding: 24px;
-}
-
-td a {
-    display: inline-block;
-    padding: 4px 10px;
-    background: #eff6ff;
-    color: #1d4ed8;
-    text-decoration: none;
+.code-pill {
+    font-family: monospace;
+    font-weight: 700;
+    background: var(--bg-page);
+    border: 1px solid var(--border-card);
+    padding: 3px 8px;
     border-radius: 6px;
+    font-size: 12.5px;
+    color: var(--text-dark);
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.2s;
+}
+
+.code-pill:hover {
+    background: var(--dark-pill);
+    color: #ffffff !important;
+}
+
+.action-link-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 12px;
+    background: var(--bg-page);
+    border: 1px solid var(--border-card);
+    color: var(--text-dark);
+    text-decoration: none;
+    border-radius: var(--radius-pill);
     font-size: 12px;
     font-weight: 600;
-    transition: background .15s;
+    transition: all 0.2s;
 }
 
-td a:hover { 
-    background: #dbeafe; 
+.action-link-btn:hover {
+    background: var(--dark-pill);
+    color: #ffffff !important;
 }
 
-.links {
-    all: unset;
+.toggle-btn {
+    background: var(--bg-page);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-pill);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dark);
     cursor: pointer;
-    color: #0386a4;
+    padding: 5px 14px;
+    transition: all 0.2s;
+}
+
+.toggle-btn:hover {
+    background: var(--dark-pill);
+    color: #ffffff;
+}
+
+/* Badges */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: var(--radius-pill);
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+}
+
+.badge.status-active {
+    background: var(--accent-lime);
+    color: var(--text-dark);
+}
+
+.badge.status-suspended {
+    background: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+}
+
+.rating-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 700;
+    font-size: 12.5px;
+    color: #b45309;
+    background: #fef3c7;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+}
+
+.rating-pill i {
+    color: #f59e0b;
 }
 </style>
 </head>
 
 <body>
-<div class="form-wrapper">
+<div class="view-wrapper">
 
-    <a href="manage_customer.php" class="form-back-link" title="Back To Customer Page">← Back</a>
+    <a href="manage_customer.php" class="form-back-link" title="Back To Customers Page">
+        <i class="bi bi-arrow-left"></i> Back to Customers
+    </a>
 
-    <div class="title">Customer Details</div>
+    <!-- Dash Header -->
+    <div class="dash-header">
+        <div class="dash-title-group">
+            <div class="dash-title-badge">
+                <i class="bi bi-person-badge"></i>
+                <span class="badge-arrow"><i class="bi bi-arrow-up-right"></i></span>
+            </div>
+            <div class="dash-title">
+                Customer Details
+                <strong>#<?= htmlspecialchars($customer['CUSTOMER_ID']) ?> - <?= htmlspecialchars($customer['CUSTOMER_NAME']) ?></strong>
+            </div>
+        </div>
+
+        <div class="dash-header-controls">
+            <span class="badge status-<?= strtolower($customer['STATUS']) ?>" style="font-size: 13px; padding: 6px 16px;">
+                <i class="bi bi-<?= strtolower($customer['STATUS']) === 'active' ? 'check-circle-fill' : 'slash-circle-fill' ?>"></i>
+                <?= htmlspecialchars($customer['STATUS']) ?>
+            </span>
+        </div>
+    </div>
 
     <!-- TOP: PROFILE + PERSONAL INFO -->
-    <div class="top-grid" style="margin-bottom:16px">
+    <div class="top-profile-grid">
 
         <!-- Profile card -->
-        <div class="card" style="margin-bottom:0">
-            <div class="profile-center">
-
+        <div class="view-card" style="margin-bottom:0">
+            <div class="profile-card-inner">
                 <div class="avatar">
                     <?php if (!empty($customer['PROFILE_IMAGE'])): ?>
                         <img src="../<?= htmlspecialchars($customer['PROFILE_IMAGE']) ?>" alt="Profile">
@@ -442,129 +779,198 @@ td a:hover {
                     <?php endif; ?>
                 </div>
 
-                <div class="customer-name">
+                <div class="customer-name-heading">
                     <?= htmlspecialchars($customer['CUSTOMER_NAME']) ?>
                 </div>
 
-                <div class="customer-email">
+                <div class="customer-email-sub">
                     <?= htmlspecialchars($customer['EMAIL']) ?>
                 </div>
 
                 <div class="badge-row">
-                    <?php 
-                        $tName = $customer['TIER_NAME'] ?? 'None';
-                        $hue = hexdec(substr(md5($tName), 0, 7)) % 360; 
-                        $tBg = "hsl({$hue}, 70%, 85%)";
-                        $tTxt = "hsl({$hue}, 70%, 25%)";
-                        $tBorder = "hsl({$hue}, 50%, 75%)";
-                    ?>
-                    <span class="badge" style="background-color: <?= $tBg ?>; color: <?= $tTxt ?>; border: 1px solid <?= $tBorder ?>; font-weight: 600;">
-                        <?= htmlspecialchars($tName) ?>
+                    <span class="badge" style="background-color: <?= $tBg ?>; color: <?= $tTxt ?>; border: 1px solid <?= $tBorder ?>; font-weight: 700;">
+                        <i class="bi bi-award"></i> <?= htmlspecialchars($tName) ?>
                     </span>
 
                     <span class="badge status-<?= strtolower($customer['STATUS']) ?>">
+                        <i class="bi bi-<?= strtolower($customer['STATUS']) === 'active' ? 'check-circle-fill' : 'slash-circle-fill' ?>"></i>
                         <?= htmlspecialchars($customer['STATUS']) ?>
                     </span>
                 </div>
 
                 <div class="profile-divider"></div>
 
-                <div class="profile-stats">
+                <div class="profile-stats-grid">
                     <div class="stat-box">
-                        <div class="stat-label">Total spent</div>
-                        <div class="stat-val">RM <?= number_format($customer['TOTAL_SPENT'], 2) ?></div>
+                        <div class="stat-label">Total Spent</div>
+                        <div class="stat-val">RM <?= number_format((float)$customer['TOTAL_SPENT'], 2) ?></div>
                     </div>
                     <div class="stat-box">
-                        <div class="stat-label">Wallet balance</div>
-                        <div class="stat-val">RM <?= number_format($customer['WALLET_BALANCE'], 2) ?></div>
+                        <div class="stat-label">Wallet Balance</div>
+                        <div class="stat-val">RM <?= number_format((float)$customer['WALLET_BALANCE'], 2) ?></div>
                     </div>
                 </div>
 
-                <div class="register-date">
-                    Registered <?= date("d M Y, H:i", strtotime($customer['CREATED_AT'])) ?>
+                <div class="register-date-note">
+                    <i class="bi bi-calendar3"></i> Joined <?= date("d M Y, h:i A", strtotime($customer['CREATED_AT'])) ?>
                 </div>
             </div>
         </div>
 
         <!-- Personal info -->
-        <div class="card" style="margin-bottom:0">
-            <h3>Personal info</h3>
-
-            <div class="row">
-                <span class="label">Name</span>
-                <span><?= htmlspecialchars($customer['CUSTOMER_NAME']) ?></span>
+        <div class="view-card" style="margin-bottom:0">
+            <div class="view-card-header">
+                <h3 class="view-card-title"><i class="bi bi-person-lines-fill"></i> Personal Information</h3>
             </div>
 
-            <div class="row">
-                <span class="label">Email</span>
-                <span><?= htmlspecialchars($customer['EMAIL']) ?></span>
-            </div>
+            <div class="view-grid-2col">
+                <div class="view-item">
+                    <span class="view-label">Full Name</span>
+                    <span class="view-val"><?= htmlspecialchars($customer['CUSTOMER_NAME']) ?></span>
+                </div>
 
-            <div class="row">
-                <span class="label">Phone</span>
-                <span><?= htmlspecialchars($customer['PHONE']) ?></span>
-            </div>
+                <div class="view-item">
+                    <span class="view-label">Email Address</span>
+                    <span class="view-val"><?= htmlspecialchars($customer['EMAIL']) ?></span>
+                </div>
 
-            <div class="row">
-                <span class="label">Membership tier</span>
-                <span class="badge" style="background-color: <?= $tBg ?>; color: <?= $tTxt ?>; border: 1px solid <?= $tBorder ?>; font-weight: 600;">
-                    <?= htmlspecialchars($tName) ?>
-                </span>
-            </div>
+                <div class="view-item">
+                    <span class="view-label">Phone Number</span>
+                    <span class="view-val"><?= !empty($customer['PHONE']) ? htmlspecialchars($customer['PHONE']) : '<span style="color:var(--text-light)">N/A</span>' ?></span>
+                </div>
 
-            <div class="row">
-                <span class="label">Status</span>
-                    <span class="badge status-<?= strtolower($customer['STATUS']) ?>">
-                        <?= htmlspecialchars($customer['STATUS']) ?>
-                    </span>
-                </span>
-            </div>
+                <div class="view-item">
+                    <span class="view-label">Membership Tier</span>
+                    <div style="margin-top:2px;">
+                        <span class="badge" style="background-color: <?= $tBg ?>; color: <?= $tTxt ?>; border: 1px solid <?= $tBorder ?>; font-weight: 700;">
+                            <?= htmlspecialchars($tName) ?>
+                        </span>
+                    </div>
+                </div>
 
-            <div class="row">
-                <span class="label">Registered</span>
-                <span><?= date("d M Y, H:i", strtotime($customer['CREATED_AT'])) ?></span>
-            </div>
+                <div class="view-item">
+                    <span class="view-label">Account Status</span>
+                    <div style="margin-top:2px;">
+                        <span class="badge status-<?= strtolower($customer['STATUS']) ?>">
+                            <i class="bi bi-<?= strtolower($customer['STATUS']) === 'active' ? 'check-circle-fill' : 'slash-circle-fill' ?>"></i>
+                            <?= htmlspecialchars($customer['STATUS']) ?>
+                        </span>
+                    </div>
+                </div>
 
-            <div class="row">
-                <span class="label">Total spent</span>
-                <span>RM <?= number_format($customer['TOTAL_SPENT'], 2) ?></span>
-            </div>
+                <div class="view-item">
+                    <span class="view-label">Registration Date</span>
+                    <span class="view-val"><?= date("d M Y, h:i A", strtotime($customer['CREATED_AT'])) ?></span>
+                </div>
 
-            <div class="row">
-                <span class="label">Wallet balance</span>
-                <span>RM <?= number_format($customer['WALLET_BALANCE'], 2) ?></span>
+                <div class="view-item">
+                    <span class="view-label">Lifetime Spent</span>
+                    <span class="view-val" style="color:#15803d; font-weight:800;">RM <?= number_format((float)$customer['TOTAL_SPENT'], 2) ?></span>
+                </div>
+
+                <div class="view-item">
+                    <span class="view-label">Current Wallet Balance</span>
+                    <span class="view-val" style="color:#0369a1; font-weight:800;">RM <?= number_format((float)$customer['WALLET_BALANCE'], 2) ?></span>
+                </div>
             </div>
         </div>
 
     </div>
 
+    <!-- MEMBERSHIP CYCLE -->
+    <div class="view-card">
+        <div class="view-card-header">
+            <h3 class="view-card-title"><i class="bi bi-arrow-repeat"></i> Membership Tier & Cycle</h3>
+        </div>
+
+        <div class="cycle-grid">
+            <div class="stat-box">
+                <div class="stat-label">Current Tier</div>
+                <div class="stat-val"><?= htmlspecialchars($tName) ?></div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Quarter Spent (Window)</div>
+                <div class="stat-val">RM <?= number_format((float)$customer['QUARTER_SPENT'], 2) ?></div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Window Start</div>
+                <div class="stat-val">
+                    <?= !empty($customer['TIER_WINDOW_START']) ? date("d M Y", strtotime($customer['TIER_WINDOW_START'])) : 'N/A' ?>
+                </div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Tier Expiry (Review Date)</div>
+                <div class="stat-val"><?= $tierExpiryText ?></div>
+                <?php if ($tierExpiryNote): ?>
+                    <div style="font-size:11.5px;font-weight:700;color:<?= $tierExpiryColor ?>;margin-top:2px;">
+                        <?= htmlspecialchars($tierExpiryNote) ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Last Tier Voucher</div>
+                <div class="stat-val"><?= $lastVoucherText ?></div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Next Tier Voucher</div>
+                <div class="stat-val"><?= $nextVoucherText ?></div>
+            </div>
+        </div>
+
+        <!-- Milestone progress -->
+        <div style="margin-top:20px; background:var(--bg-page); border:1px solid var(--border-card); border-radius:14px; padding:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px; flex-wrap:wrap; gap:8px;">
+                <span style="font-weight:700;font-size:13.5px;color:var(--text-dark);">
+                    <i class="bi bi-gift" style="color:#d97706;"></i> RM<?= number_format($MILESTONE_TARGET) ?> Milestone Reward (RM10 Voucher)
+                </span>
+                <span style="font-size:13px;font-weight:600;color:var(--text-muted);">
+                    RM <?= number_format($msSpent, 2) ?> / <?= number_format($MILESTONE_TARGET) ?> &middot; 
+                    <strong style="color:#15803d;">RM <?= number_format($msRemaining, 2) ?> left</strong>
+                </span>
+            </div>
+            <div class="progress-bar-wrap">
+                <div class="progress-fill" style="width:<?= $msPercent ?>%"></div>
+            </div>
+            <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">
+                <i class="bi bi-clock-history"></i> Milestone window ends: <?= $msExpiryText ?>
+            </div>
+        </div>
+    </div>
+
     <!-- ADDRESS INFO -->
-    <div class="card">
-        <h3>Shipping info</h3>
+    <div class="view-card">
+        <div class="view-card-header">
+            <h3 class="view-card-title"><i class="bi bi-geo-alt"></i> Shipping & Address Information</h3>
+        </div>
 
         <?php if ($addressResult->num_rows > 0): ?>
             <div class="addr-grid">
             <?php $index = 1; while ($addr = $addressResult->fetch_assoc()): ?>
                 <div class="addr-card <?= $addr['IS_DEFAULT'] == 1 ? 'is-default' : '' ?>">
                     <div class="addr-title">
-                        Address <?= $index ?>
+                        <span>Address <?= $index ?></span>
                         <?php if ($addr['IS_DEFAULT'] == 1): ?>
-                            <span class="default-pill">Default</span>
+                            <span class="default-pill"><i class="bi bi-check2"></i> Default</span>
                         <?php endif; ?>
                     </div>
 
                     <div class="info-row">
-                        <span class="info-label">Name</span>
+                        <span class="info-label">Name:</span>
                         <span class="info-val"><?= htmlspecialchars($addr['FIRST_NAME'] . ' ' . $addr['LAST_NAME']) ?></span>
                     </div>
 
                     <div class="info-row">
-                        <span class="info-label">Phone</span>
+                        <span class="info-label">Phone:</span>
                         <span class="info-val"><?= htmlspecialchars($addr['PHONE']) ?></span>
                     </div>
 
                     <div class="info-row">
-                        <span class="info-label">Address</span>
+                        <span class="info-label">Address:</span>
                         <span class="info-val">
                             <?= htmlspecialchars($addr['ADDRESS_LINE']) ?>,
                             <?= htmlspecialchars($addr['CITY']) ?>,
@@ -574,23 +980,23 @@ td a:hover {
                     </div>
 
                     <div class="info-row">
-                        <span class="info-label">Company</span>
-                        <span class="info-val"><?= !empty($addr['COMPANY']) ? htmlspecialchars($addr['COMPANY']) : 'N/A' ?></span>
+                        <span class="info-label">Company:</span>
+                        <span class="info-val"><?= !empty($addr['COMPANY']) ? htmlspecialchars($addr['COMPANY']) : '<span style="color:var(--text-light)">N/A</span>' ?></span>
                     </div>
                 </div>
             <?php $index++; endwhile; ?>
             </div>
         <?php else: ?>
-            <p style="color:#9ca3af;font-size:13px">No address found.</p>
+            <p style="color:var(--text-muted);font-size:13.5px;margin:0">No shipping addresses registered for this customer.</p>
         <?php endif; ?>
     </div>
 
     <!-- ORDER HISTORY -->
-    <div class="card">
-        <div class="section-header">
-            <div class="section-title">Order history</div>
+    <div class="view-card">
+        <div class="view-card-header">
+            <h3 class="view-card-title"><i class="bi bi-bag-check"></i> Order History (<?= count($orders) ?>)</h3>
             <?php if (count($orders) > 3): ?>
-                <button class="toggle-btn" id="toggleOrdersBtn">Show all</button>
+                <button type="button" class="toggle-btn" id="toggleOrdersBtn">Show all</button>
             <?php endif; ?>
         </div>
 
@@ -598,11 +1004,11 @@ td a:hover {
             <table>
                 <thead>
                     <tr>
-                        <th style="width:130px">Order no</th>
-                        <th style="width:110px">Date</th>
-                        <th style="width:130px">Total amount</th>
+                        <th style="width:140px">Order No</th>
+                        <th style="width:120px">Date</th>
+                        <th style="width:130px">Total Amount</th>
                         <th style="width:120px">Status</th>
-                        <th style="width:80px">Action</th>
+                        <th style="width:90px">Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -610,22 +1016,26 @@ td a:hover {
                     <?php foreach ($orders as $i => $order): ?>
                         <tr class="order-row"<?= $i >= 3 ? ' style="display:none"' : '' ?>>
                             <td>
-                                <a href="view_order.php?order_id=<?= $order['ORDER_ID'] ?>" class="links">
+                                <a href="view_order.php?order_id=<?= (int)$order['ORDER_ID'] ?>" class="code-pill">
                                     #<?= htmlspecialchars($order['ORDER_NO']) ?>
                                 </a>
                             </td>
                             <td><?= date("d M Y", strtotime($order['CREATED_AT'])) ?></td>
-                            <td>RM <?= number_format($order['TOTAL_AMOUNT'], 2) ?></td>
+                            <td style="font-weight:700;">RM <?= number_format((float)$order['TOTAL_AMOUNT'], 2) ?></td>
                             <td>
                                 <span class="badge status-<?= strtolower($order['ORDER_STATUS']) ?>">
                                     <?= htmlspecialchars($order['ORDER_STATUS']) ?>
                                 </span>
                             </td>
-                            <td><a href="view_order.php?order_id=<?= $order['ORDER_ID'] ?>">View</a></td>
+                            <td>
+                                <a href="view_order.php?order_id=<?= (int)$order['ORDER_ID'] ?>" class="action-link-btn">
+                                    <i class="bi bi-eye"></i> View
+                                </a>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <tr class="empty-row"><td colspan="5">No orders found.</td></tr>
+                    <tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted);">No orders found.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -633,11 +1043,11 @@ td a:hover {
     </div>
 
     <!-- REVIEWS -->
-    <div class="card">
-        <div class="section-header">
-            <div class="section-title">Rating &amp; reviews history</div>
+    <div class="view-card">
+        <div class="view-card-header">
+            <h3 class="view-card-title"><i class="bi bi-chat-quote"></i> Rating &amp; Reviews History (<?= count($reviews) ?>)</h3>
             <?php if (count($reviews) > 3): ?>
-                <button class="toggle-btn" id="toggleReviewsBtn">Show all</button>
+                <button type="button" class="toggle-btn" id="toggleReviewsBtn">Show all</button>
             <?php endif; ?>
         </div>
 
@@ -645,48 +1055,50 @@ td a:hover {
             <table>
                 <thead>
                     <tr>
-                        <th style="width:130px">Order no</th>
-                        <th style="width:160px">Product</th>
-                        <th style="width:100px">Date</th>
-                        <th style="width:70px">Rating</th>
-                        <th style="width:180px">Comment</th>
-                        <th style="width:85px">Status</th>
-                        <th style="width:70px">Action</th>
+                        <th style="width:140px">Order No</th>
+                        <th style="width:180px">Product</th>
+                        <th style="width:110px">Date</th>
+                        <th style="width:80px">Rating</th>
+                        <th>Comment</th>
+                        <th style="width:90px">Status</th>
+                        <th style="width:90px">Action</th>
                     </tr>
                 </thead>
                 <tbody>
                 <?php if (count($reviews) > 0): ?>
                     <?php foreach ($reviews as $i => $rev): ?>
                         <tr class="review-row"<?= $i >= 3 ? ' style="display:none"' : '' ?>>
-
                             <td>
-                                <a href="view_order.php?order_id=<?= $rev['ORDER_ID'] ?>" class="links">
+                                <a href="view_order.php?order_id=<?= (int)$rev['ORDER_ID'] ?>" class="code-pill">
                                     #<?= htmlspecialchars($rev['ORDER_NO']) ?>
                                 </a>
                             </td>
-
-                            <td>
-                                <?= htmlspecialchars($rev['PRODUCT_NAME_SNAPSHOT']) ?>
+                            <td style="font-weight:600;">
+                                <?= htmlspecialchars($rev['PRODUCT_NAME_SNAPSHOT'] ?? 'N/A') ?>
                             </td>
-
                             <td><?= date("d M Y", strtotime($rev['CREATED_AT'])) ?></td>
-
-                            <td><?= htmlspecialchars($rev['RATING']) ?> ★</td>
-
-                            <td><?= htmlspecialchars($rev['COMMENTS'] ?? 'N/A') ?></td>
-
+                            <td>
+                                <div class="rating-pill">
+                                    <i class="bi bi-star-fill"></i> <?= htmlspecialchars($rev['RATING']) ?>.0
+                                </div>
+                            </td>
+                            <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="<?= htmlspecialchars($rev['COMMENTS'] ?? '', ENT_QUOTES) ?>">
+                                <?= !empty(trim($rev['COMMENTS'] ?? '')) ? htmlspecialchars($rev['COMMENTS']) : '<span style="color:var(--text-light); font-style:italic;">No comment</span>' ?>
+                            </td>
                             <td>
                                 <span class="badge status-<?= strtolower($rev['REVIEW_STATUS']) ?>">
                                     <?= htmlspecialchars($rev['REVIEW_STATUS']) ?>
                                 </span>
                             </td>
-
-                            <td><a href="view_review.php?review_id=<?= $rev['REVIEW_ID'] ?>">View</a></td>
-                            
+                            <td>
+                                <a href="view_review.php?review_id=<?= (int)$rev['REVIEW_ID'] ?>" class="action-link-btn">
+                                    <i class="bi bi-eye"></i> View
+                                </a>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <tr class="empty-row"><td colspan="7">No reviews found.</td></tr>
+                    <tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-muted);">No reviews found.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -694,11 +1106,11 @@ td a:hover {
     </div>
 
     <!-- WALLET TRANSACTIONS -->
-    <div class="card">
-        <div class="section-header">
-            <div class="section-title">Wallet transactions history</div>
+    <div class="view-card">
+        <div class="view-card-header">
+            <h3 class="view-card-title"><i class="bi bi-wallet2"></i> Wallet Transactions History (<?= count($wallets) ?>)</h3>
             <?php if (count($wallets) > 3): ?>
-                <button class="toggle-btn" id="toggleWalletsBtn">Show all</button>
+                <button type="button" class="toggle-btn" id="toggleWalletsBtn">Show all</button>
             <?php endif; ?>
         </div>
 
@@ -706,28 +1118,32 @@ td a:hover {
             <table>
                 <thead>
                     <tr>
-                        <th style="width:90px">Type</th>
-                        <th style="width:130px">Method</th>
-                        <th style="width:100px">Amount</th>
-                        <th style="width:110px">Before</th>
-                        <th style="width:110px">After</th>
-                        <th style="width:110px">Date</th>
+                        <th style="width:100px">Type</th>
+                        <th style="width:140px">Method</th>
+                        <th style="width:110px">Amount</th>
+                        <th style="width:120px">Before</th>
+                        <th style="width:120px">After</th>
+                        <th style="width:120px">Date</th>
                     </tr>
                 </thead>
                 <tbody>
                 <?php if (count($wallets) > 0): ?>
                     <?php foreach ($wallets as $i => $wallet): ?>
                         <tr class="wallet-row"<?= $i >= 3 ? ' style="display:none"' : '' ?>>
-                            <td><?= htmlspecialchars($wallet['TYPE']) ?></td>
-                            <td><?= htmlspecialchars($wallet['TOPUP_METHODS']) ?></td>
-                            <td>RM <?= number_format($wallet['AMOUNT'], 2) ?></td>
-                            <td>RM <?= number_format($wallet['BEFORE_BALANCE'], 2) ?></td>
-                            <td>RM <?= number_format($wallet['AFTER_BALANCE'], 2) ?></td>
+                            <td>
+                                <span class="badge" style="background:var(--bg-page); color:var(--text-dark); border:1px solid var(--border-card);">
+                                    <?= htmlspecialchars($wallet['TYPE']) ?>
+                                </span>
+                            </td>
+                            <td><?= htmlspecialchars($wallet['TOPUP_METHODS'] ?? 'N/A') ?></td>
+                            <td style="font-weight:700; color:#15803d;">RM <?= number_format((float)$wallet['AMOUNT'], 2) ?></td>
+                            <td>RM <?= number_format((float)$wallet['BEFORE_BALANCE'], 2) ?></td>
+                            <td style="font-weight:600;">RM <?= number_format((float)$wallet['AFTER_BALANCE'], 2) ?></td>
                             <td><?= date("d M Y", strtotime($wallet['CREATED_AT'])) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <tr class="empty-row"><td colspan="6">No wallet transactions.</td></tr>
+                    <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted);">No wallet transactions recorded.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -735,11 +1151,11 @@ td a:hover {
     </div>
 
     <!-- VOUCHERS -->
-    <div class="card">
-        <div class="section-header">
-            <div class="section-title">Voucher history</div>
+    <div class="view-card">
+        <div class="view-card-header">
+            <h3 class="view-card-title"><i class="bi bi-ticket-perforated"></i> Voucher Claim &amp; Usage History (<?= count($vouchers) ?>)</h3>
             <?php if (count($vouchers) > 3): ?>
-                <button class="toggle-btn" id="toggleVouchersBtn">Show all</button>
+                <button type="button" class="toggle-btn" id="toggleVouchersBtn">Show all</button>
             <?php endif; ?>
         </div>
 
@@ -747,34 +1163,38 @@ td a:hover {
             <table>
                 <thead>
                     <tr>
-                        <th style="width:140px">Voucher name</th>
-                        <th style="width:130px">Code</th>
+                        <th style="width:150px">Voucher Name</th>
+                        <th style="width:140px">Code</th>
                         <th style="width:100px">Discount</th>
-                        <th style="width:100px">Used count</th>
-                        <th style="width:100px">Last used</th>
+                        <th style="width:100px">Used Count</th>
+                        <th style="width:110px">Last Used</th>
                         <th style="width:120px">Expiry</th>
-                        <th style="width:120px">Claimed at</th>
+                        <th style="width:120px">Claimed At</th>
                     </tr>
                 </thead>
                 <tbody>
                 <?php if (count($vouchers) > 0): ?>
                     <?php foreach ($vouchers as $i => $voucher): ?>
                         <tr class="voucher-row"<?= $i >= 3 ? ' style="display:none"' : '' ?>>
-                            <td><?= htmlspecialchars($voucher['VOUCHER_NAME']) ?></td>
+                            <td style="font-weight:600;"><?= htmlspecialchars($voucher['VOUCHER_NAME']) ?></td>
                             <td>
-                                <a href="view_voucher.php?voucher_id=<?= $voucher['VOUCHER_ID'] ?>" class="links">
+                                <a href="view_voucher.php?voucher_id=<?= (int)$voucher['VOUCHER_ID'] ?>" class="code-pill">
                                     #<?= htmlspecialchars($voucher['VOUCHER_CODE']) ?>
                                 </a>
                             </td>
-                            <td><?= $voucher['DISCOUNT_RATE'] ?>%</td>
-                            <td><?= $voucher['USED_COUNT'] ?></td>
-                            <td><?= $voucher['LAST_USED_AT'] ? date("d M Y", strtotime($voucher['LAST_USED_AT'])) : 'N/A' ?></td>
-                            <td><?= $voucher['CUSTOMER_VOUCHER_EXPIRY'] ? date("d M Y", strtotime($voucher['CUSTOMER_VOUCHER_EXPIRY'])) : 'Claim-Based' ?></td>
+                            <td style="font-weight:700; color:#b45309;">
+                                <?= strtoupper($voucher['DISCOUNT_TYPE'] ?? '') === 'FIXED'
+                                    ? 'RM ' . number_format((float)$voucher['DISCOUNT_RATE'], 2)
+                                    : rtrim(rtrim(number_format((float)$voucher['DISCOUNT_RATE'], 2), '0'), '.') . '%' ?>
+                            </td>
+                            <td><?= (int)$voucher['USED_COUNT'] ?></td>
+                            <td><?= $voucher['LAST_USED_AT'] ? date("d M Y", strtotime($voucher['LAST_USED_AT'])) : '<span style="color:var(--text-light)">N/A</span>' ?></td>
+                            <td><?= $voucher['CUSTOMER_VOUCHER_EXPIRY'] ? date("d M Y", strtotime($voucher['CUSTOMER_VOUCHER_EXPIRY'])) : '<span style="color:var(--text-muted)">Claim-Based</span>' ?></td>
                             <td><?= date("d M Y", strtotime($voucher['CLAIMED_AT'])) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <tr class="empty-row"><td colspan="7">No vouchers found.</td></tr>
+                    <tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-muted);">No vouchers found for this customer.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>

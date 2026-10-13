@@ -128,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_check_name'], $
     // free text, so wrap it into that minimal structure before inserting.
     $packingGroups = json_decode($_POST['packing_json']  ?? '[]', true) ?: [];
     $featureGroups = json_decode($_POST['features_json'] ?? '[]', true) ?: [];
-    $categoryIds = $_POST['category_ids'] ?? [];
+    $categoryIds = array_values(array_unique(array_map('intval', $_POST['category_ids'] ?? [])));
 
     // Options data (sent as JSON from JS - see form below)
     $optionsJson  = $_POST['options_json'] ?? '[]';
@@ -144,39 +144,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_check_name'], $
     if ($productCode === "") $errors[] = "Product code required";
     if (!in_array($status, ['Active','Inactive'])) $errors[] = "Invalid status";
     if (empty($categoryIds)) $errors[] = "Select at least 1 category";
-    // --- Category parent/child consistency check ---
+    // --- Category validation: only leaf categories allowed ---
     if (empty($errors)) {
-        $submittedIds = array_map('intval', $categoryIds);
-
-        // Rule 1: 选了子分类，母分类必须也选
-        foreach ($catChildren as $parentId => $children) {
-            foreach ($children as $child) {
-                if (in_array((int)$child['CATEGORY_ID'], $submittedIds, true) && !in_array((int)$parentId, $submittedIds, true)) {
-                    $errors[] = "Please also select the parent category for: " . $child['CATEGORY_NAME'];
-                }
+        $allCatIds = array_map('intval', array_column($catRows, 'CATEGORY_ID'));
+        foreach ($categoryIds as $cid) {
+            if (!in_array($cid, $allCatIds, true)) {
+                $errors[] = "Invalid category selected";
+                break;
             }
-        }
-
-        // Rule 2: 选了母分类、且它有子分类，必须至少选一个子分类
-        foreach ($catParents as $parent) {
-            $pid = (int)$parent['CATEGORY_ID'];
-            if (!in_array($pid, $submittedIds, true)) continue;              // 这个母分类根本没被选，跳过
-            if (empty($catChildren[$parent['CATEGORY_ID']])) continue;       // 这个母分类本来就没有子分类，跳过
-
-            $hasChildSelected = false;
-            foreach ($catChildren[$parent['CATEGORY_ID']] as $child) {
-                if (in_array((int)$child['CATEGORY_ID'], $submittedIds, true)) {
-                    $hasChildSelected = true;
-                    break;
-                }
-            }
-            if (!$hasChildSelected) {
-                $errors[] = "Please also select a sub-category under: " . $parent['CATEGORY_NAME'];
+            if (!empty($catChildren[$cid])) {   // 有子分类的母分类
+                $errors[] = "Please select a sub-category instead of a parent category";
+                break;
             }
         }
     }
-    if (empty($variants)) $errors[] = "At least 1 variant required";
-
+    
     $warrantyVal = ($warranty !== '' && ctype_digit($warranty)) ? intval($warranty) : null;
 
     // Duplicate name check
@@ -329,6 +311,7 @@ if (empty($errors) && !empty($seenSku)) {
         $title = trim($g['group'] ?? '');
         $note  = trim($g['note'] ?? '');
         $img   = $packingImagePaths[(int)$gi] ?? null;
+        
 
         // 没有上传文件时，看有没有图片链接（只允许 http/https）
         if (!$img) {
@@ -342,6 +325,12 @@ if (empty($errors) && !empty($seenSku)) {
                 }
             }
         }
+
+        if ($title === '' && !$items && $note === '' && !$img) continue;
+        $entry = ['group' => $title, 'items' => $items];
+        if ($note !== '') $entry['note']  = $note;
+        if ($img)         $entry['image'] = $img;
+        $packing[] = $entry;
     }
     $packingList = $packing ? json_encode($packing, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
 
@@ -363,11 +352,14 @@ foreach ($featureGroups as $fg) {
         continue;
     }
 
-    if (!$points && $img === '') continue;   // 没有 point 也没有图片才跳过
+            $note = trim($fg['note'] ?? '');
 
-    $entry = ['category' => trim($fg['category'] ?? ''), 'points' => $points];
-    if ($img !== '') $entry['image'] = $img;
-    $featuresArr[] = $entry;
+            if (!$points && $img === '' && $note === '') continue;
+
+            $entry = ['category' => trim($fg['category'] ?? ''), 'points' => $points];
+            if ($note !== '') $entry['note'] = $note;
+            if ($img !== '')  $entry['image'] = $img;
+            $featuresArr[] = $entry;
 }
 
   $features = $featuresArr ? json_encode($featuresArr, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
@@ -1709,36 +1701,38 @@ select.form-input {
                         <span class="card-badge" style="background: #fee2e2; color: #dc2626;">Required*</span>
                     </h3>
                     <div class="category-tree">
-                        <?php foreach ($catParents as $parent): ?>
-                            <div class="category-parent-group">
-                                <div class="category-parent-header" onclick="toggleCategoryGroup(this)">
+                        <?php foreach ($catParents as $parent):
+                            $pid  = (int)$parent['CATEGORY_ID'];
+                            $kids = $catChildren[$pid] ?? [];
+                        ?>
+                        <div class="category-parent-group">
+                            <div class="category-parent-header" onclick="toggleCategoryGroup(this)">
+                                <?php if ($kids): ?>
                                     <i class="bi bi-chevron-right category-toggle-icon"></i>
+                                    <strong style="font-size:13px"><?= htmlspecialchars($parent['CATEGORY_NAME']) ?></strong>
+                                <?php else: ?>
                                     <label onclick="event.stopPropagation()">
-                                        <input type="checkbox" class="cat-parent" name="category_ids[]"
-                                            value="<?= $parent['CATEGORY_ID'] ?>"
-                                            data-group="<?= $parent['CATEGORY_ID'] ?>"
-                                            onchange="onParentToggle(this)">
+                                        <input type="checkbox" name="category_ids[]" value="<?= $pid ?>">
                                         <?= htmlspecialchars($parent['CATEGORY_NAME']) ?>
                                     </label>
-                                </div>
-                                <?php if (!empty($catChildren[$parent['CATEGORY_ID']])): ?>
-                                    <div class="category-children">
-                                        <?php foreach ($catChildren[$parent['CATEGORY_ID']] as $child): ?>
-                                            <label>
-                                                <input type="checkbox" class="cat-child" name="category_ids[]"
-                                                    value="<?= $child['CATEGORY_ID'] ?>"
-                                                    data-group="<?= $parent['CATEGORY_ID'] ?>"
-                                                    onchange="onChildToggle(this)">
-                                                <?= htmlspecialchars($child['CATEGORY_NAME']) ?>
-                                            </label>
-                                        <?php endforeach; ?>
-                                    </div>
                                 <?php endif; ?>
                             </div>
+
+                            <?php if ($kids): ?>
+                            <div class="category-children">
+                                <?php foreach ($kids as $child): ?>
+                                <label>
+                                    <input type="checkbox" name="category_ids[]" value="<?= (int)$child['CATEGORY_ID'] ?>">
+                                    <?= htmlspecialchars($child['CATEGORY_NAME']) ?>
+                                </label>
+                                <?php endforeach; ?>
+                            </div>
+                            <?php endif; ?>
+                        </div>
                         <?php endforeach; ?>
                     </div>
-                    <span id="categoryError" class="error"></span>
-                </div>
+                         <span id="categoryError" class="error"></span>
+                    </div> 
 
                 <!-- Media Upload Cards -->
                 <div class="form-card">
@@ -1983,7 +1977,7 @@ function renderPacking() {
 
 // ================= Features builder =================
 // 改成
-const newFeatureGroup = () => ({ category: '', image: '', points: [{ text: '', subText: '' }] });
+const newFeatureGroup = () => ({ category: '', note: '', image: '', points: [{ text: '', subText: '' }] });
 let featureGroups = [newFeatureGroup()];
 
 function addFeatureGroup()        { featureGroups.push(newFeatureGroup()); renderFeatures(); }
@@ -2023,7 +2017,7 @@ function bulkAddFeatures(fi, btn) {
                 cur.category = name;
                 
             } else {
-                cur = { category: name, image: '', points: [] };
+                cur = { category: name, note: '', image: '', points: [] };
                 featureGroups.splice(insertAt++, 0, cur);
             }
             lastPoint = null;
@@ -2051,11 +2045,14 @@ function renderFeatures() {
                     value="${esc(g.category)}" oninput="featureGroups[${fi}].category = this.value">
                 <button type="button" class="bl-del" onclick="removeFeatureGroup(${fi})">✕ Remove</button>
             </div>
-                        <div class="bl-row">
-                <input type="text" placeholder="Image URL (optional) e.g. https://example.com/photo.jpg"
-                    value="${esc(g.image)}"
-                    oninput="featureGroups[${fi}].image = this.value.trim()"
-                    onchange="renderFeatures()">
+            <textarea placeholder="Note shown above the list (optional)"
+                oninput="featureGroups[${fi}].note = this.value">${esc(g.note)}</textarea>
+
+                <div class="bl-row">
+                    <input type="text" placeholder="Image URL (optional) e.g. https://example.com/photo.jpg"
+                        value="${esc(g.image)}"
+                        oninput="featureGroups[${fi}].image = this.value.trim()"
+                        onchange="renderFeatures()">
             </div>
             ${g.image ? `
                 <div class="bl-preview">
@@ -2118,21 +2115,7 @@ function renderFeatures() {
     icon.classList.toggle('bi-chevron-down', !isOpen);
 }
 
-function onChildToggle(childCheckbox) {
-        // 勾选子分类 -> 自动勾选对应的母分类
-        if (childCheckbox.checked) {
-            const groupId = childCheckbox.dataset.group;
-            const parent = document.querySelector(`.cat-parent[data-group="${groupId}"]`);
-            if (parent) parent.checked = true;
-        }
-    }
-function onParentToggle(parentCheckbox) {
-        // 取消勾选母分类 -> 一并取消所有子分类，避免"选了子分类但母分类没选"的矛盾状态
-        if (!parentCheckbox.checked) {
-            const groupId = parentCheckbox.dataset.group;
-            document.querySelectorAll(`.cat-child[data-group="${groupId}"]`).forEach(c => c.checked = false);
-        }
-    }
+
 
 function removeOptionGroup(gi) {
     optionGroups.splice(gi, 1);
@@ -2777,6 +2760,7 @@ document.addEventListener("DOMContentLoaded", function () {
         document.getElementById('featuresJson').value = JSON.stringify(
             featureGroups.map(g => ({
                 category: g.category,
+                note: g.note,
                 image: g.image,
                 points: g.points.map(p => ({ text: p.text, sub_points: p.subText.split('\n') }))
             }))
@@ -2792,28 +2776,13 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         // At least one category required
-        const categoryChecked = document.querySelectorAll('input[name="category_ids[]"]:checked').length;
+       const categoryChecked = document.querySelectorAll('input[name="category_ids[]"]:checked').length;
         const categoryError = document.getElementById("categoryError");
         if (categoryChecked === 0) {
             categoryError.textContent = "Select at least 1 category";
             ok = false;
         } else {
-            // 检查：勾了母分类、且它有子分类的话，是否至少勾了一个子分类
-            let missingChild = false;
-            document.querySelectorAll('.cat-parent:checked').forEach(parentCb => {
-                const groupId = parentCb.dataset.group;
-                const children = document.querySelectorAll(`.cat-child[data-group="${groupId}"]`);
-                if (children.length === 0) return;                       // 这个母分类本来就没有子分类
-                const anyChildChecked = Array.from(children).some(c => c.checked);
-                if (!anyChildChecked) missingChild = true;
-            });
-
-            if (missingChild) {
-                categoryError.textContent = "Please also select a sub-category for each selected category";
-                ok = false;
-            } else {
-                categoryError.textContent = "";
-            }
+            categoryError.textContent = "";
         }
 
         

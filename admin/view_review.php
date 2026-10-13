@@ -22,7 +22,7 @@ $stmt = $conn->prepare("
     SELECT 
         r.*,
         c.CUSTOMER_NAME,
-        c.CUSTOMER_EMAIL,
+        c.EMAIL,
         o.ORDER_NO,
         o.ORDER_ID,
         p.PRODUCT_NAME,
@@ -223,14 +223,10 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    background: #ffffff;
-    border: 1px solid var(--border-card);
-    padding: 8px 16px;
-    border-radius: var(--radius-pill);
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-dark);
-    box-shadow: var(--shadow-soft);
+    background: transparent;
+    border: none;
+    padding: 0;
+    box-shadow: none;
 }
 
 /* View Cards */
@@ -470,7 +466,12 @@ body {
 
             <div class="view-item">
                 <span class="view-label">Customer Name</span>
-                <span class="view-val"><?= htmlspecialchars($review['CUSTOMER_NAME'] ?? 'Guest Customer') ?></span>
+                <span class="view-val"><?= htmlspecialchars($review['CUSTOMER_NAME'] ?? 'Guest Customer') ?>
+                <?php if (!empty($review['EMAIL'])): ?>
+                    <br><small style="color:var(--text-muted);font-weight:500;"><?= htmlspecialchars($review['EMAIL']) ?></small>
+                <?php endif; ?>
+            </span>
+                 
             </div>
 
             <div class="view-item">

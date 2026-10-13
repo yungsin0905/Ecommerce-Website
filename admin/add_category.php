@@ -94,10 +94,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_check_name'])) 
         VALUES (?,?,?,0)
     ");
 
-    $stmt->bind_param("ssi", $name, $status, $parentId);
+        $stmt->bind_param("ssi", $name, $status, $parentId);
 
-    if (!$stmt->execute()) {
-        echo "Insert failed";
+    try {
+        $stmt->execute();
+    } catch (mysqli_sql_exception $e) {
+        if ($e->getCode() == 1062) {
+            echo "Category name already exists";
+        } else {
+            echo "Insert failed, please try again";
+        }
         exit;
     }
 

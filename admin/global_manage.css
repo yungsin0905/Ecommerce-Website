@@ -598,9 +598,12 @@ body {
 }
 
 /* button container */
-#replyForm div,
-#refundForm div,
-#statusForm div {
+#replyForm .modal-footer,
+#refundForm .modal-footer,
+#statusForm .modal-footer,
+#replyForm > div:last-child,
+#refundForm > div:last-child,
+#statusForm > div:last-child {
     display: flex;
     justify-content: flex-end;
     gap: 12px;

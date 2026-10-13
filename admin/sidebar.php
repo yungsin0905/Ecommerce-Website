@@ -279,7 +279,6 @@
             <a href="manage_order.php">
                <i class="bi bi-bag-check sidebar-icon"></i>
                <span class="sidebar-text">Order</span>
-               <span class="sub-sidebar-btn">▶</span>
             </a>
          </li>
 
@@ -303,13 +302,6 @@
                <span class="sidebar-text">Product</span>
             </a>
          </li>
-
-         <li class="<?= $current_page == 'manage_addon.php' ? 'active' : '' ?>">
-            <a href="manage_addon.php">
-               <i class="bi bi-plus-square sidebar-icon"></i>
-               <span class="sidebar-text">Addon</span>
-            </a>
-         </li>
             
          <li class="<?= $current_page == 'manage_voucher.php' ? 'active' : '' ?>">
             <a href="manage_voucher.php">
@@ -329,13 +321,6 @@
             <a href="manage_review.php">
                <i class="bi bi-star sidebar-icon"></i>
                <span class="sidebar-text">Review</span>
-            </a>
-         </li>
-
-         <li class="<?= $current_page == 'production_capacity.php' ? 'active' : '' ?>">
-            <a href="production_capacity.php">
-               <i class="bi bi-building-gear sidebar-icon"></i>
-               <span class="sidebar-text">Production</span>
             </a>
          </li>
 
