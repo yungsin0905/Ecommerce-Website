@@ -244,6 +244,7 @@ if (empty($errors) && !empty($seenSku)) {
 
     // --- Cover image ---
     $imagePath = null;
+    $coverUrl  = trim($_POST['cover_url'] ?? '');
     if (empty($errors) && !empty($_FILES['cover']['name'])) {
         $allowedTypes = ['image/jpeg','image/png','image/webp'];
         $maxSize = 2 * 1024 * 1024;
@@ -268,6 +269,12 @@ if (empty($errors) && !empty($seenSku)) {
             } else {
                 $imagePath = $path;
             }
+        }
+    } elseif (empty($errors) && $coverUrl !== '') {
+        if (filter_var($coverUrl, FILTER_VALIDATE_URL) && preg_match('#^https?://#i', $coverUrl)) {
+            $imagePath = $coverUrl;
+        } else {
+            $errors[] = "Invalid cover image URL";
         }
     }
 
@@ -363,6 +370,17 @@ foreach ($featureGroups as $fg) {
 }
 
   $features = $featuresArr ? json_encode($featuresArr, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
+  
+  $galleryUrls = [];   // localId => url
+    foreach ((json_decode($_POST['gallery_urls_json'] ?? '[]', true) ?: []) as $g) {
+        $u = trim($g['url'] ?? '');
+        if ($u === '') continue;
+        if (filter_var($u, FILTER_VALIDATE_URL) && preg_match('#^https?://#i', $u)) {
+            $galleryUrls[intval($g['localId'] ?? 0)] = $u;
+        } else {
+            $errors[] = "Invalid gallery image URL: $u";
+        }
+    }
 
     if (!empty($errors)) {
         echo implode(" | ", $errors);
@@ -451,40 +469,40 @@ foreach ($featureGroups as $fg) {
             }
         }
 
-        // 5. product images (每个 variant 一行；没关联任何 variant 的图 VARIANT_ID = NULL)
+        // 5. product images
+        $stmtI = $conn->prepare("INSERT INTO product_images (PRODUCT_ID, VARIANT_ID, IMAGE_PATH, IS_DELETED) VALUES (?,?,?,0)");
+        $insertImg = function ($localId, $path) use ($stmtI, $productId, $imageToVariants) {
+            $linked = $imageToVariants[intval($localId)] ?? [null];
+            foreach ($linked as $vid) {
+                $stmtI->bind_param("iis", $productId, $vid, $path);
+                $stmtI->execute();
+            }
+        };
+
         if (!empty($_FILES['images']['name'])) {
             $allowedTypes = ['image/jpeg','image/png','image/webp'];
             $maxSize = 2 * 1024 * 1024;
             $dir = "uploads/product/";
             if (!is_dir($dir)) mkdir($dir, 0777, true);
 
-            $stmtI = $conn->prepare("INSERT INTO product_images (PRODUCT_ID, VARIANT_ID, IMAGE_PATH, IS_DELETED) VALUES (?,?,?,0)");
-
             foreach ($_FILES['images']['name'] as $localId => $n) {
                 if ($_FILES['images']['error'][$localId] !== UPLOAD_ERR_OK) continue;
-
                 $tmp  = $_FILES['images']['tmp_name'][$localId];
                 $size = $_FILES['images']['size'][$localId];
 
                 $finfo = finfo_open(FILEINFO_MIME_TYPE);
                 $type  = finfo_file($finfo, $tmp);
                 finfo_close($finfo);
-
                 if (!in_array($type, $allowedTypes) || $size > $maxSize) continue;
 
                 $extMap = ['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp'];
                 $path = $dir . time() . "_" . uniqid() . "." . $extMap[$type];
-
-                if (move_uploaded_file($tmp, $path)) {
-                    // 同一张图可以被多个 variant 共用：文件只存一份，每个 variant 一行记录
-                    $linked = $imageToVariants[intval($localId)] ?? [null];
-                    foreach ($linked as $vid) {
-                        $stmtI->bind_param("iis", $productId, $vid, $path);
-                        $stmtI->execute();
-                    }
-                }
+                if (move_uploaded_file($tmp, $path)) $insertImg($localId, $path);
             }
         }
+
+        // 链接图片
+        foreach ($galleryUrls as $lid => $u) $insertImg($lid, $u);
 
         // 6. addons
         $stmtAddon = $conn->prepare("
@@ -1742,6 +1760,8 @@ select.form-input {
                     </h3>
                     <div class="form-group" style="margin-bottom:0;">
                         <input type="file" name="cover" class="form-input">
+                        <input type="text" name="cover_url" id="coverUrlInput" class="form-input"
+                            style="margin-top:8px" placeholder="or paste image URL, e.g. https://example.com/photo.jpg">
                         <small class="text-hint">JPG, PNG, WEBP (Max 2MB)</small>
                         <span id="coverError" class="error"></span>
                         <div style="margin-top: 10px;">
@@ -1758,6 +1778,10 @@ select.form-input {
                     </h3>
                     <div class="form-group" style="margin-bottom:0;">
                         <input type="file" name="images[]" class="form-input" multiple>
+                        <div style="display:flex; gap:8px; margin-top:8px;">
+                            <input type="text" id="galleryUrlInput" class="form-input" placeholder="or paste image URL">
+                            <button type="button" id="galleryUrlBtn" class="btn-pill-dark">Add</button>
+                        </div>
                         <span class="text-hint">Multiple images supported (Max 2MB each)</span>
                         <span id="extraError" class="error"></span>
                         <div id="extraPreview"></div>
@@ -2457,6 +2481,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
     const productCodeError = document.getElementById("productCodeError");
     const brandError = document.getElementById("brandError");
+    const categoryError = document.getElementById("categoryError");
 
     // Parse backend response for both AJAX and form submission
     function parseBackendResponse(text) {
@@ -2592,15 +2617,15 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         if (!ALLOWED.includes(file.type) || file.size > MAX_SIZE) {
-
             coverError.textContent = "Invalid image (JPG/PNG/WEBP, max 2MB)";
             this.classList.add("input-error");
-
             this.value = "";
             preview.src = "";
             preview.style.display = "none";
             return;
         }
+
+        document.getElementById("coverUrlInput").value = "";   // ← 加在这里
 
         const reader = new FileReader();
         reader.onload = function (e) {
@@ -2609,6 +2634,36 @@ document.addEventListener("DOMContentLoaded", function () {
             preview.style.width = "120px";
         };
         reader.readAsDataURL(file);
+    });
+
+    document.getElementById("coverUrlInput").addEventListener("change", function () {
+        const url = this.value.trim();
+        const preview = document.getElementById("coverPreview");
+        coverError.textContent = "";
+        if (url === "") { preview.style.display = "none"; return; }
+        if (!/^https?:\/\//i.test(url)) {
+            coverError.textContent = "Invalid cover image URL";
+            return;
+        }
+        coverInput.value = "";            // 链接优先时清掉已选文件
+        preview.src = url;
+        preview.style.display = "block";
+    });
+
+    document.getElementById("galleryUrlBtn").addEventListener("click", function () {
+        const inp = document.getElementById("galleryUrlInput");
+        const url = inp.value.trim();
+        if (!/^https?:\/\//i.test(url)) {
+            extraError.textContent = "Invalid image URL";
+            return;
+        }
+        extraError.textContent = "";
+        if (!selectedFiles.some(f => f.url === url)) {
+            selectedFiles.push({ url, localId: nextImageLocalId++, previewUrl: url });
+            renderPreview();
+            renderOptionGroups();
+        }
+        inp.value = "";
     });
 
     // Real-time validation and preview for extra images
@@ -2629,7 +2684,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             const exists = selectedFiles.some(f =>
-                f.file.name === file.name && f.file.size === file.size
+                f.file && f.file.name === file.name && f.file.size === file.size
             );
 
             if (exists) continue;
@@ -2777,7 +2832,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
         // At least one category required
        const categoryChecked = document.querySelectorAll('input[name="category_ids[]"]:checked').length;
-        const categoryError = document.getElementById("categoryError");
         if (categoryChecked === 0) {
             categoryError.textContent = "Select at least 1 category";
             ok = false;
@@ -2801,11 +2855,12 @@ document.addEventListener("DOMContentLoaded", function () {
             if (g.imageFile) formData.append(`packing_images[${gi}]`, g.imageFile, g.imageFile.name);
         });
 
-        selectedFiles.forEach(entry => {
-            // Keyed by localId (not a plain array) so the backend can report back
-            // which PRODUCT_IMAGE_ID each upload became, matching option_json's imageLocalId.
+        selectedFiles.filter(e => !e.url).forEach(entry => {
             formData.append(`images[${entry.localId}]`, entry.file, entry.file.name);
         });
+        formData.append('gallery_urls_json', JSON.stringify(
+            selectedFiles.filter(e => e.url).map(e => ({ localId: e.localId, url: e.url }))
+        ));
 
         fetch("add_product.php", {
             method: "POST",
@@ -2897,6 +2952,7 @@ function removeImage(type) {
         input.value = "";
         document.getElementById("coverPreview").style.display = "none";
         document.getElementById("coverError").textContent = "";
+        document.getElementById("coverUrlInput").value = "";
     }
 
     if (type === "extra") {
@@ -2905,6 +2961,7 @@ function removeImage(type) {
         Object.values(variantData).forEach(v => { v.imageLocalId = null; });
         renderOptionGroups();
     }
+    
 }
 
 

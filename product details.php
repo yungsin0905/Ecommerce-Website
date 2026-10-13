@@ -142,10 +142,10 @@ unset($a);
   $images = mysqli_fetch_all($img_result, MYSQLI_ASSOC);
 
     // variant_id => 图片路径
-  $variant_images = [];
+   $variant_images = [];
   foreach ($images as $img) {
       if (!empty($img['VARIANT_ID']) && !isset($variant_images[$img['VARIANT_ID']])) {
-          $variant_images[$img['VARIANT_ID']] = 'admin/' . $img['IMAGE_PATH'];
+          $variant_images[$img['VARIANT_ID']] = resolveImg($img['IMAGE_PATH']);
       }
   }
 
@@ -282,10 +282,23 @@ if (isset($_GET['cart_item_id'])) {
     $in_wishlist = mysqli_num_rows($wl_check) > 0;
   }
 
-  //image path
+    //image path
+  function resolveImg($path)
+  {
+    $path = trim((string)$path);
+    if ($path === '') return '';
+    if (preg_match('#^https?://#i', $path)) return $path;
+    return 'admin/' . $path;
+  }
+
   function resolveAddonImage($path)
   {
     if (empty($path)) return null;
+
+    //外部链接
+    if (preg_match('#^https?://#i', $path)) {
+      return $path;
+    }
 
     //admin/
     if (str_starts_with($path, 'admin/')) {
@@ -511,10 +524,21 @@ if (isset($_GET['cart_item_id'])) {
     display: block;
 }
 
-.description-content video,
-.description-content iframe {
+.description-content video {
+    display: block;
+    width: 100% !important;
+    height: auto !important;
     max-width: 100%;
-    height: auto;
+    border-radius: 8px;
+}
+
+.description-content iframe {
+    display: block;
+    width: 100% !important;
+    max-width: 100%;
+    aspect-ratio: 16 / 9;
+    height: auto !important;
+    border: 0;
     border-radius: 8px;
 }
 
@@ -969,13 +993,13 @@ if (isset($_GET['cart_item_id'])) {
       <div class="product-container">
     <!-- product image -->
 
-          <div class="product-gallery">
+            <div class="product-gallery">
               <div class="main-image">
-                  <img id="mainImg" src="admin/<?php echo htmlspecialchars($product['COVER_IMAGE']); ?>" alt="Main Product">
+                  <img id="mainImg" src="<?php echo htmlspecialchars(resolveImg($product['COVER_IMAGE'])); ?>" alt="Main Product">
               </div>
               <?php if (!empty($images)): ?>
                 <div class="thumbnail-list">
-                    <img src="admin/<?php echo htmlspecialchars($product['COVER_IMAGE']); ?>" class="active-thumb" onclick="switchMainImage(this.src, this)" alt="Thumb">
+                    <img src="<?php echo htmlspecialchars(resolveImg($product['COVER_IMAGE'])); ?>" class="active-thumb" onclick="switchMainImage(this.src, this)" alt="Thumb">
                     <?php
                     $unique_images = [];
                     foreach ($images as $img) {
@@ -983,7 +1007,7 @@ if (isset($_GET['cart_item_id'])) {
                     }
                     ?>
                     <?php foreach ($unique_images as $img): ?>
-                        <img src="admin/<?php echo htmlspecialchars($img['IMAGE_PATH']); ?>" onclick="switchMainImage(this.src, this)" alt="Thumb">
+                        <img src="<?php echo htmlspecialchars(resolveImg($img['IMAGE_PATH'])); ?>" onclick="switchMainImage(this.src, this)" alt="Thumb">
                     <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
@@ -1213,14 +1237,9 @@ if (isset($_GET['cart_item_id'])) {
                               <p style="font-weight:bold; margin-bottom:4px; color: var(--font-color);"><?php echo htmlspecialchars($group['category']); ?></p>
                           <?php endif; ?>
 
-                          <?php
-                          // 图片链接：只接受 http(s)，外部链接直接用，不加 admin/
-                          $feature_img = trim($group['image'] ?? '');
-                          if ($feature_img !== '' && preg_match('#^https?://#i', $feature_img)):
-                          ?>
-                              <img class="feature-img" src="<?php echo htmlspecialchars($feature_img, ENT_QUOTES); ?>"
-                                  alt="<?php echo htmlspecialchars($group['category'] ?? ''); ?>" loading="lazy">
-                          <?php endif; ?>
+                          <?php if (!empty($group['note'])): ?>
+                            <div class="packing-note"><?php echo nl2br(htmlspecialchars($group['note'])); ?></div>
+                        <?php endif; ?>
 
                           <?php if (!empty($group['points'])): ?>
                           <ul style="margin-bottom:12px;">
@@ -1237,6 +1256,14 @@ if (isset($_GET['cart_item_id'])) {
                                   </li>
                               <?php endforeach; ?>
                           </ul>
+                          <?php endif; ?>
+                          <?php
+                          // 图片链接：只接受 http(s)，外部链接直接用，不加 admin/
+                          $feature_img = trim($group['image'] ?? '');
+                          if ($feature_img !== '' && preg_match('#^https?://#i', $feature_img)):
+                          ?>
+                              <img class="feature-img" src="<?php echo htmlspecialchars($feature_img, ENT_QUOTES); ?>"
+                                  alt="<?php echo htmlspecialchars($group['category'] ?? ''); ?>" loading="lazy">
                           <?php endif; ?>
                       <?php endforeach; ?>
                   <?php else: ?>

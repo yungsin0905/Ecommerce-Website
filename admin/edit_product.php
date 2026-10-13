@@ -303,10 +303,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // cover
     $oldCover  = $product['COVER_IMAGE'];
     $coverPath = $oldCover;
+    $coverUrl  = trim($_POST['cover_url'] ?? '');
     if (($_POST['remove_image'] ?? '0') === '1') $coverPath = null;
     if (!empty($_FILES['cover']['name'])) {
         $p = $saveImage($_FILES['cover']['tmp_name'], $_FILES['cover']['size']);
         if ($p) $coverPath = $p; else $errors[] = "Invalid cover image (jpeg, png, webp, max 2MB)";
+    } elseif ($coverUrl !== '') {
+        if (filter_var($coverUrl, FILTER_VALIDATE_URL) && preg_match('#^https?://#i', $coverUrl)) {
+            $coverPath = $coverUrl;
+        } else {
+            $errors[] = "Invalid cover image URL";
+        }
     }
 
     // packing photos
@@ -329,6 +336,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+        // gallery image URLs
+    $galleryUrls = [];   // localId => url
+    foreach ((json_decode($_POST['gallery_urls_json'] ?? '[]', true) ?: []) as $g) {
+        $u = trim($g['url'] ?? '');
+        if ($u === '') continue;
+        if (filter_var($u, FILTER_VALIDATE_URL) && preg_match('#^https?://#i', $u)) {
+            $galleryUrls[intval($g['localId'] ?? 0)] = $u;
+        } else {
+            $errors[] = "Invalid gallery image URL: $u";
+        }
+    }
+
     // kept old gallery images (必须真的属于这个产品)
     $oldGallery = array_column($imageRows, 'IMAGE_PATH');
     $keptImages = [];
@@ -341,6 +360,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         echo implode(" | ", $errors);
         exit;
     }
+    
 
         // packing JSON (沿用旧图)
     $packing = [];
@@ -394,11 +414,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             continue;
         }
 
-        if (!$points && $img === '') continue;
+            $note = trim($fg['note'] ?? '');
 
-        $entry = ['category' => trim($fg['category'] ?? ''), 'points' => $points];
-        if ($img !== '') $entry['image'] = $img;
-        $featuresArr[] = $entry;
+            if (!$points && $img === '' && $note === '') continue;
+
+            $entry = ['category' => trim($fg['category'] ?? ''), 'points' => $points];
+            if ($note !== '') $entry['note'] = $note;
+            if ($img !== '')  $entry['image'] = $img;
+            $featuresArr[] = $entry;
     }
     $features = $featuresArr ? json_encode($featuresArr, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
 
@@ -544,6 +567,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         };
         foreach ($keptImages as $k)        $insertImage($k['localId'], $k['path']);
         foreach ($newImgPaths as $lid => $p) $insertImage($lid, $p);
+        foreach ($galleryUrls as $lid => $u) $insertImage($lid, $u);  
 
         // f. addons（不删除旧行，避免破坏订单历史；没提交的改为软删除）
         $stmt = $conn->prepare("
@@ -1906,6 +1930,9 @@ select.form-input {
                     </h3>
                     <div class="form-group" style="margin-bottom:0;">
                         <input type="file" name="cover" class="form-input">
+                        <input type="text" name="cover_url" id="coverUrlInput" class="form-input" style="margin-top:8px"
+                            placeholder="or paste image URL, e.g. https://example.com/photo.jpg"
+                            value="<?= preg_match('#^https?://#i', $product['COVER_IMAGE'] ?? '') ? htmlspecialchars($product['COVER_IMAGE']) : '' ?>">
                         <small class="text-hint">JPG, PNG, WEBP (Max 2MB)</small>
                         <span id="coverError" class="error"></span>
                         <div style="margin-top:10px;">
@@ -1924,6 +1951,10 @@ select.form-input {
                     </h3>
                     <div class="form-group" style="margin-bottom:0;">
                         <input type="file" name="images[]" class="form-input" multiple>
+                        <div style="display:flex; gap:8px; margin-top:8px;">
+                            <input type="text" id="galleryUrlInput" class="form-input" placeholder="or paste image URL">
+                            <button type="button" id="galleryUrlBtn" class="btn-pill-dark">Add</button>
+                        </div>
                         <span class="text-hint">Multiple images supported (Max 2MB each)</span>
                         <span id="extraError" class="error"></span>
                         <div id="extraPreview"></div>
@@ -2147,7 +2178,7 @@ function renderPacking() {
 }
 
 // ================= Features builder =================
-const newFeatureGroup = () => ({ category: '', image: '', points: [{ text: '', subText: '' }] });
+const newFeatureGroup = () => ({ category: '', note: '', image: '', points: [{ text: '', subText: '' }] });
 let featureGroups = [newFeatureGroup()];
 
 function addFeatureGroup()        { featureGroups.push(newFeatureGroup()); renderFeatures(); }
@@ -2187,7 +2218,7 @@ function bulkAddFeatures(fi, btn) {
             if (cur === firstGroup && !cur.category.trim() && cur.points.length === 0) {
                 cur.category = name;
             } else {
-                cur = { category: name, image: '', points: [] };
+                cur = { category: name, note: '', image: '', points: [] };
                 featureGroups.splice(insertAt++, 0, cur);
             }
             lastPoint = null;
@@ -2215,6 +2246,9 @@ function renderFeatures() {
                     value="${esc(g.category)}" oninput="featureGroups[${fi}].category = this.value">
                 <button type="button" class="bl-del" onclick="removeFeatureGroup(${fi})">✕ Remove</button>
             </div>
+
+             <textarea placeholder="Note shown above the list (optional)"
+                oninput="featureGroups[${fi}].note = this.value">${esc(g.note)}</textarea>
 
             <div class="bl-row">
                 <input type="text" placeholder="Image URL (optional) e.g. https://example.com/photo.jpg"
@@ -2766,12 +2800,28 @@ coverInput.addEventListener("change", function () {
     }
 
     document.getElementById("removeImageInput").value = "0";   // 选了新图就取消"移除"标记
+    document.getElementById("coverUrlInput").value = "";
     const reader = new FileReader();
     reader.onload = e => {
         preview.src = e.target.result;
         preview.style.display = "block";
     };
     reader.readAsDataURL(file);
+});
+
+document.getElementById("coverUrlInput").addEventListener("change", function () {
+    const url = this.value.trim();
+    const preview = document.getElementById("coverPreview");
+    coverError.textContent = "";
+    if (url === "") return;
+    if (!/^https?:\/\//i.test(url)) {
+        coverError.textContent = "Invalid cover image URL";
+        return;
+    }
+    coverInput.value = "";
+    document.getElementById("removeImageInput").value = "0";
+    preview.src = url;
+    preview.style.display = "block";
 });
     // Real-time validation and preview for extra images
     imagesInput.addEventListener("change", function () {
@@ -2790,7 +2840,7 @@ coverInput.addEventListener("change", function () {
                 continue;
             }
 
-            const exists = selectedFiles.some(f => !f.existing && f.file.name === file.name && f.file.size === file.size);
+           const exists = selectedFiles.some(f => !f.existing && f.file && f.file.name === file.name && f.file.size === file.size);
 
             if (exists) continue;
 
@@ -2884,6 +2934,22 @@ coverInput.addEventListener("change", function () {
         });
     }
 
+    document.getElementById("galleryUrlBtn").addEventListener("click", function () {
+        const inp = document.getElementById("galleryUrlInput");
+        const url = inp.value.trim();
+        if (!/^https?:\/\//i.test(url)) {
+            extraError.textContent = "Invalid image URL";
+            return;
+        }
+        extraError.textContent = "";
+        if (!selectedFiles.some(f => f.url === url || f.path === url)) {
+            selectedFiles.push({ url, localId: nextImageLocalId++, previewUrl: url });
+            renderPreview();
+            renderOptionGroups();
+        }
+        inp.value = "";
+    });
+
     // Form submit
     form.addEventListener("submit", function (e) {
 
@@ -2923,6 +2989,7 @@ coverInput.addEventListener("change", function () {
         document.getElementById('featuresJson').value = JSON.stringify(
             featureGroups.map(g => ({
                 category: g.category,
+                note: g.note,
                 image: g.image,
                 points: g.points.map(p => ({ text: p.text, sub_points: p.subText.split('\n') }))
             }))
@@ -2965,9 +3032,13 @@ coverInput.addEventListener("change", function () {
         formData.append('keep_images_json', JSON.stringify(
             selectedFiles.filter(e => e.existing).map(e => ({ localId: e.localId, path: e.path }))
         ));
-        selectedFiles.filter(e => !e.existing).forEach(entry => {
+        selectedFiles.filter(e => !e.existing && !e.url).forEach(entry => {
             formData.append(`images[${entry.localId}]`, entry.file, entry.file.name);
         });
+
+        formData.append('gallery_urls_json', JSON.stringify(
+            selectedFiles.filter(e => e.url && !e.existing).map(e => ({ localId: e.localId, url: e.url }))
+        ));
 
         fetch("edit_product.php?product_id=" + currentProductId, {
             method: "POST",
@@ -3066,6 +3137,7 @@ coverInput.addEventListener("change", function () {
     if (EDIT.features.length) {
         featureGroups = EDIT.features.map(g => ({
             category: g.category || '',
+            note: g.note || '',
             image: g.image || '',
             points: (g.points || []).map(p => typeof p === 'string'
                 ? { text: p, subText: '' }
@@ -3144,6 +3216,7 @@ function removeImage(type) {
         document.getElementById("coverPreview").style.display = "none";
         document.getElementById("coverError").textContent = "";
         document.getElementById("removeImageInput").value = "1";
+        document.getElementById("coverUrlInput").value = "";
     }
 
     if (type === "extra") {

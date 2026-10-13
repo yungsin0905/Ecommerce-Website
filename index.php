@@ -23,6 +23,15 @@ if (!function_exists('getCategoryIcon')) {
         return 'bi-grid-fill';
     }
 }
+
+if (!function_exists('resolveImg')) {
+    function resolveImg($path) {
+        $path = trim((string)$path);
+        if ($path === '') return '';
+        if (preg_match('#^https?://#i', $path)) return $path;
+        return 'admin/' . $path;
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -969,8 +978,8 @@ if (!function_exists('getCategoryIcon')) {
                 if ($result && $result->num_rows > 0) {
                   while ($row=$result->fetch_assoc()){
                     ?>
-              <div class="cake-item">
-                  <img src="admin/<?php echo $row['COVER_IMAGE'];?>" alt="<?php echo htmlspecialchars($row['PRODUCT_NAME']);?>">
+                <div class="cake-item">
+                  <img src="<?php echo htmlspecialchars(resolveImg($row['COVER_IMAGE']));?>" alt="<?php echo htmlspecialchars($row['PRODUCT_NAME']);?>">
                   <p class="cake-name">
                     <a href="product details.php?id=<?php echo $row['PRODUCT_ID']; ?>">
                       <?php echo htmlspecialchars($row['PRODUCT_NAME']);?>
@@ -1059,8 +1068,8 @@ if (!function_exists('getCategoryIcon')) {
                   $is_best_seller = ($row['SALES_COUNT'] >= 50);
                     ?>
                     <div class="cake-item">
-                      <div class="cake-img-wrap">
-                          <img src="admin/<?php echo $row['COVER_IMAGE'];?>" alt="<?php echo htmlspecialchars($row['PRODUCT_NAME']);?>">
+                        <div class="cake-img-wrap">
+                          <img src="<?php echo htmlspecialchars(resolveImg($row['COVER_IMAGE']));?>" alt="<?php echo htmlspecialchars($row['PRODUCT_NAME']);?>">
                           <?php if ($is_best_seller): ?>
                               <span class="badge-best-seller">BEST SELLER</span>
                           <?php elseif ($has_discount): ?>

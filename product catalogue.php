@@ -574,9 +574,13 @@ if (!$product_result) {
                     <?php
                     if ($product_result && $product_result->num_rows > 0) {
                         while ($row = $product_result->fetch_assoc()) {
-                            $cover = !empty($row['COVER_IMAGE'])
-                                ? "admin/" . str_replace(['\\', ' ', '&'], ['/', '%20', '%26'], $row['COVER_IMAGE'])
-                                : "image/placeholder.jpg";
+                            if (empty($row['COVER_IMAGE'])) {
+                                $cover = "image/placeholder.jpg";
+                            } elseif (preg_match('#^https?://#i', $row['COVER_IMAGE'])) {
+                                $cover = $row['COVER_IMAGE'];
+                            } else {
+                                $cover = "admin/" . str_replace(['\\', ' ', '&'], ['/', '%20', '%26'], $row['COVER_IMAGE']);
+                            }
 
                                 $display_price = $row['DISPLAY_MIN_PRICE'];
                                 $original_price = $row['ORIGINAL_PRICE_OF_MIN'];
@@ -587,7 +591,7 @@ if (!$product_result) {
                             ?>
                             <div class="cake-item <?= $is_out_of_stock ? 'out-of-stock-item' : '' ?>">
                                 <div class="cake-img-wrap">
-                                    <img src="<?php echo $cover; ?>" alt="<?php echo htmlspecialchars($row['PRODUCT_NAME']); ?>">
+                                    <img src="<?php echo htmlspecialchars($cover); ?>" alt="<?php echo htmlspecialchars($row['PRODUCT_NAME']); ?>">
                                     <?php if ($is_out_of_stock): ?>
                                         <span class="badge-out-of-stock">OUT OF STOCK</span>
                                     <?php elseif ($is_best_seller): ?>
