@@ -108,14 +108,5 @@ function sendMail(string $to, string $subject, string $body, string $toName = ''
     }
 }
 
-function slugify($text) {
-    $text = strtolower(trim((string)$text));
-    $text = preg_replace('/[^a-z0-9]+/', '-', $text);
-    $text = trim($text, '-');
-    return $text !== '' ? $text : 'product';
-}
 
-function productUrl($id, $name) {
-    return 'p-' . slugify($name) . '-' . intval($id);
-}
 ?>

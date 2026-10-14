@@ -37,11 +37,6 @@ $product_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
     exit();
   }
 
-  if (stripos(urldecode($_SERVER['REQUEST_URI']), 'product details.php') !== false) {
-      header("Location: /" . productUrl($product['PRODUCT_ID'], $product['PRODUCT_NAME']), true, 301);
-      exit();
-  }
-
   $display_rating = $product['CALCULATED_RATING'] ? round($product['CALCULATED_RATING'], 1) : 0;
   $total_reviews = $product['TOTAL_REVIEWS'];
   $features_data = !empty($product['FEATURES']) ? json_decode($product['FEATURES'], true) : [];
@@ -240,17 +235,6 @@ if (isset($_GET['cart_item_id'])) {
        $addon_sql = "SELECT * FROM cart_item_addon WHERE CART_ITEM_ID = $cart_item_id";
        $addon_res = mysqli_query($conn, $addon_sql);
 
-       $editing_card_text = '';
-
-       while ($row = mysqli_fetch_assoc($addon_res)) {
-
-          $editing_addons[$row['ADD_ON_ID']] = $row['QUANTITY'];
-
-          // greeting card addon
-          if ($row['PRODUCT_ADD_ON_ID'] == 3) {
-              $editing_card_text = $row['CARD_TEXT'];
-          }
-     }
    }
 }
 
@@ -1141,7 +1125,7 @@ if (isset($_GET['cart_item_id'])) {
                     <?php if ($checked) echo 'checked'; ?>
                     <?php if ($addon['ADD_ON_STOCK'] <= 0) echo 'disabled'; ?>
                     data-price="<?php echo $addon['ADD_ON_PRICE'];?>" 
-                    onclick="calculationTotal(); <?php if($addon['ADD_ON_ID'] == 3): ?>toggleCardRequired(this);<?php endif;?>"> 
+                    onclick="calculationTotal();"> 
                     
                     <?php if(!empty($addon['ADD_ON_IMAGE'])): ?>
                       <?php $imgSrc = resolveAddonImage($addon['ADD_ON_IMAGE']); ?>
@@ -1151,7 +1135,7 @@ if (isset($_GET['cart_item_id'])) {
                     <?php endif;?>
 
                     <div class="addon-info">
-                     <p><a href="<?php echo productUrl($addon['ADD_ON_PRODUCT_ID'], $addon['PRODUCT_NAME']); ?>"><?php echo htmlspecialchars($addon['ADD_ON_NAME']); ?></a></p>
+                      <p><a href="product details.php?id=<?php echo $addon['ADD_ON_PRODUCT_ID']; ?>"><?php echo htmlspecialchars($addon['ADD_ON_NAME']); ?></a></p>
                       
                       <span>RM <?php echo number_format($addon['ADD_ON_PRICE'],2);?></span>
                       <?php if ($addon['ADD_ON_STOCK'] <= 0): ?>
@@ -1165,24 +1149,6 @@ if (isset($_GET['cart_item_id'])) {
                       <button type="button" <?php if ($addon['ADD_ON_STOCK'] <= 0) echo 'disabled'; ?> onclick="changeQty(this, 1); calculationTotal()">+</button>
                     </div>
                   </div>
-
-                  <?php if($addon['ADD_ON_ID'] == 3):?>
-                    <div id="cardMessageArea" style="margin-left: 30px; margin-top: 10px; <?php echo $checked ? 'display:block;' : 'display:none;'; ?>">
-                      <?php
-                      $card_text = '';
-
-                      if (isset($editing_card_text)) {
-                          $card_text = $editing_card_text;
-                      }
-                      ?>
-                      <textarea id="cardMessageInput" name="card_message" placeholder="Write your greeting message here..."
-                      
-                      maxlength="50"><?php echo $card_text; ?></textarea>
-                      <small style="color: var(--font2-color); float: right;">
-                        <span id="cardCount">0</span> / 50
-                      </small>
-                    </div>
-                  <?php endif;?>
                 <?php endforeach;?>
             </div>
             <?php endif;?>
@@ -1323,7 +1289,7 @@ if (isset($_GET['cart_item_id'])) {
           </div>
           <span class="review-count text-muted">Based on <?php echo $review_count;?> reviews</span>
           
-          <select onchange="location.href='?sort='+this.value" style="margin-left: auto; width: auto;">
+          <select onchange="location.href='?id=<?php echo $product_id; ?>&sort='+this.value" style="margin-left: auto; width: auto;">
             <option value="high_ratings" <?php echo (isset($_GET['sort']) && $_GET['sort'] == 'high_ratings') ? 'selected' : ''; ?>>Highest Ratings</option>
             <option value = "new_ratings" <?php echo (isset($_GET['sort']) && $_GET['sort'] == 'new_ratings') ? 'selected' : ''; ?>>Latest Ratings</option>
           </select>
@@ -1836,15 +1802,6 @@ if (isset($_GET['cart_item_id'])) {
       alert("Sorry, this option is currently out of stock!");
       return;
     }
-
-    //verify when user check the card box but field is empty
-     const cardCheckbox = document.querySelector('input[name="selected_addons[]"][value="3"]');
-      const cardMessage = document.getElementById('cardMessageInput');
-      if (cardCheckbox && cardCheckbox.checked && cardMessage.value.trim() === '') {
-      alert("Please write your greeting message for the card!");
-      cardMessage.focus();
-      return;
-    }  
   
 
     const form = document.getElementById('productForm');
@@ -1895,14 +1852,6 @@ if (isset($_GET['cart_item_id'])) {
       return;
     }
 
-    //verify when user check the card box but field is empty
-     const cardCheckbox = document.querySelector('input[name="selected_addons[]"][value="3"]');
-      const cardMessage = document.getElementById('cardMessageInput');
-      if (cardCheckbox && cardCheckbox.checked && cardMessage.value.trim() === '') {
-      alert("Please write your greeting message for the card!");
-      cardMessage.focus();
-      return;
-    }  
   
     const form = document.getElementById('productForm');
     const formData = new FormData(form);
@@ -2052,50 +2001,8 @@ if (isset($_GET['cart_item_id'])) {
     updatePrice();
     document.querySelectorAll('.quantity-input').forEach(updateQtyButtonStates);
 
-    // card message word count
-    const cardInput = document.getElementById('cardMessageInput');
-    const cardCount = document.getElementById('cardCount');
-    if (cardInput && cardCount) {
-        cardCount.textContent = cardInput.value.length;
-        cardInput.addEventListener('input', function() {
-            cardCount.textContent = this.value.length;
-        });
-    }
-
-    // cake writing word count
-    const cakeInput = document.getElementById('cakeWritingId');
-    if (cakeInput) {
-        const cakeCounter = document.createElement('small');
-        cakeCounter.style.cssText = 'color: var(--font2-color); float: right;';
-        cakeInput.insertAdjacentElement('afterend', cakeCounter);
-
-        cakeInput.setAttribute('maxlength', '50');
-        cakeInput.addEventListener('input', function() {
-            document.getElementById('cakeCount').textContent = this.value.length;
-        });
-    }
   });
 
-  //if card text selected is required to fill up the textbox
-  function toggleCardRequired(checkbox){
-    const messageArea = document.getElementById('cardMessageArea');
-    const messageInput = document.getElementById('cardMessageInput');
-    if (checkbox.checked) {
-       //required to filled
-        messageArea.style.display = 'block';
-        messageInput.setAttribute('required', 'required');
-    }else {
-      messageArea.style.display = 'none';
-      messageInput.removeAttribute('required');
-      messageInput.value = '';
-      cardCount.textContent = cardInput.value.length;
-      
-      //word count
-      const counter = document.getElementById('cardCount');
-        if (counter) counter.textContent = '0';
-    }
-
-  }
 
 
 </script>
