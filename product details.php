@@ -37,6 +37,11 @@ $product_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
     exit();
   }
 
+  if (stripos(urldecode($_SERVER['REQUEST_URI']), 'product details.php') !== false) {
+      header("Location: /" . productUrl($product['PRODUCT_ID'], $product['PRODUCT_NAME']), true, 301);
+      exit();
+  }
+
   $display_rating = $product['CALCULATED_RATING'] ? round($product['CALCULATED_RATING'], 1) : 0;
   $total_reviews = $product['TOTAL_REVIEWS'];
   $features_data = !empty($product['FEATURES']) ? json_decode($product['FEATURES'], true) : [];
@@ -1146,7 +1151,7 @@ if (isset($_GET['cart_item_id'])) {
                     <?php endif;?>
 
                     <div class="addon-info">
-                      <p><a href="product details.php?id=<?php echo $addon['ADD_ON_PRODUCT_ID']; ?>"><?php echo htmlspecialchars($addon['ADD_ON_NAME']); ?></a></p>
+                     <p><a href="<?php echo productUrl($addon['ADD_ON_PRODUCT_ID'], $addon['PRODUCT_NAME']); ?>"><?php echo htmlspecialchars($addon['ADD_ON_NAME']); ?></a></p>
                       
                       <span>RM <?php echo number_format($addon['ADD_ON_PRICE'],2);?></span>
                       <?php if ($addon['ADD_ON_STOCK'] <= 0): ?>
@@ -1318,7 +1323,7 @@ if (isset($_GET['cart_item_id'])) {
           </div>
           <span class="review-count text-muted">Based on <?php echo $review_count;?> reviews</span>
           
-          <select onchange="location.href='?id=<?php echo $product_id; ?>&sort='+this.value" style="margin-left: auto; width: auto;">
+          <select onchange="location.href='?sort='+this.value" style="margin-left: auto; width: auto;">
             <option value="high_ratings" <?php echo (isset($_GET['sort']) && $_GET['sort'] == 'high_ratings') ? 'selected' : ''; ?>>Highest Ratings</option>
             <option value = "new_ratings" <?php echo (isset($_GET['sort']) && $_GET['sort'] == 'new_ratings') ? 'selected' : ''; ?>>Latest Ratings</option>
           </select>
